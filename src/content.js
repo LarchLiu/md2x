@@ -157,13 +157,11 @@ function restoreScrollPosition(scrollPosition) {
       window.scrollTo(0, scrollPosition);
       const currentPosition = window.scrollY || window.pageYOffset;
       
-      // Clear sessionStorage after successful restoration (if available)
-      try {
-        const storageKey = `scroll_position_${document.location.href}`;
-        sessionStorage.removeItem(storageKey);
-      } catch (e) {
-        // Ignore sessionStorage errors in sandboxed environments
-      }
+      // Clear saved scroll position from background script after successful restoration
+      chrome.runtime.sendMessage({
+        type: 'clearScrollPosition',
+        url: document.location.href
+      });
       
       // If the position wasn't set correctly, try again after a short delay
       if (Math.abs(currentPosition - scrollPosition) > 10) {
@@ -198,13 +196,11 @@ function restoreScrollPosition(scrollPosition) {
       }
     });
   } else {
-    // Still clear any stored position (if sessionStorage is available)
-    try {
-      const storageKey = `scroll_position_${document.location.href}`;
-      sessionStorage.removeItem(storageKey);
-    } catch (e) {
-      // Ignore sessionStorage errors in sandboxed environments
-    }
+    // Still clear any stored position from background script
+    chrome.runtime.sendMessage({
+      type: 'clearScrollPosition',
+      url: document.location.href
+    });
   }
 }
 
@@ -527,27 +523,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // we can directly proceed with processing
 const isRemote = document.location.protocol !== 'file:';
 
-// For sandboxed pages (like GitHub raw), we can't access sessionStorage
-// So we'll use a simple fallback for scroll position
-let savedScrollPosition = 0;
-try {
-  savedScrollPosition = window.scrollY || window.pageYOffset || 0;
+// Get scroll position from background script (avoids sandbox restrictions)
+async function getSavedScrollPosition() {
+  let currentScrollPosition = 0;
   
-  // Try to get scroll position from sessionStorage if available
-  const storageKey = `scroll_position_${document.location.href}`;
-  const storedPosition = sessionStorage.getItem(storageKey);
-  if (storedPosition && savedScrollPosition === 0) {
-    savedScrollPosition = parseInt(storedPosition, 10) || 0;
+  try {
+    currentScrollPosition = window.scrollY || window.pageYOffset || 0;
+  } catch (e) {
+    console.log('[Markdown Viewer] Window access blocked, using fallback');
   }
   
-  // Save to sessionStorage for future reloads if possible
-  if (savedScrollPosition > 0) {
-    sessionStorage.setItem(storageKey, savedScrollPosition.toString());
+  // Get saved scroll position from background script
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: 'getScrollPosition',
+      url: document.location.href
+    });
+    
+    if (response && response.position > 0 && currentScrollPosition === 0) {
+      return response.position;
+    }
+  } catch (e) {
+    console.log('[Markdown Viewer] Failed to get saved scroll position');
   }
-} catch (e) {
-  // If we can't access sessionStorage (sandboxed pages), just use current scroll position
-  console.log('[Markdown Viewer] SessionStorage access blocked, using fallback');
-  savedScrollPosition = window.scrollY || window.pageYOffset || 0;
+  
+  return currentScrollPosition;
 }
 
 // Get the raw markdown content
@@ -574,6 +574,9 @@ document.body.innerHTML = `
 
 // Wait a bit for DOM to be ready, then start processing
 setTimeout(async () => {
+  // Get saved scroll position
+  const savedScrollPosition = await getSavedScrollPosition();
+  
   // Parse and render markdown
   await renderMarkdown(rawMarkdown, savedScrollPosition);
   
@@ -584,22 +587,24 @@ setTimeout(async () => {
   setupResponsiveToc();
 }, 100);
 
-// Listen for scroll events to save position for potential future reloads
-// Only if sessionStorage is available (not in sandboxed environments)
+// Listen for scroll events and save position to background script
 let scrollTimeout;
 try {
   window.addEventListener('scroll', () => {
-    // Debounce scroll saving to avoid too frequent sessionStorage writes
+    // Debounce scroll saving to avoid too frequent background messages
     clearTimeout(scrollTimeout);
     scrollTimeout = setTimeout(() => {
       try {
         const currentPosition = window.scrollY || window.pageYOffset;
         if (currentPosition > 0) {
-          const storageKey = `scroll_position_${document.location.href}`;
-          sessionStorage.setItem(storageKey, currentPosition.toString());
+          chrome.runtime.sendMessage({
+            type: 'saveScrollPosition',
+            url: document.location.href,
+            position: currentPosition
+          });
         }
       } catch (e) {
-        // Ignore sessionStorage errors in sandboxed environments
+        // Ignore errors
       }
     }, 300); // Save position 300ms after user stops scrolling
   });

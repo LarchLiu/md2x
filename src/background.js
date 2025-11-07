@@ -4,6 +4,9 @@ import ExtensionCacheManager from './cache-manager.js';
 let offscreenCreated = false;
 let globalCacheManager = null;
 
+// Store scroll positions in memory (per session)
+const scrollPositions = new Map();
+
 // Initialize the global cache manager
 async function initGlobalCacheManager() {
   try {
@@ -36,6 +39,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'injectContentScript') {
     handleContentScriptInjection(sender.tab.id, sendResponse);
     return true; // Keep message channel open for async response
+  }
+  
+  // Handle scroll position management
+  if (message.type === 'saveScrollPosition') {
+    scrollPositions.set(message.url, message.position);
+    sendResponse({ success: true });
+    return;
+  }
+  
+  if (message.type === 'getScrollPosition') {
+    const position = scrollPositions.get(message.url) || 0;
+    sendResponse({ position });
+    return;
+  }
+  
+  if (message.type === 'clearScrollPosition') {
+    scrollPositions.delete(message.url);
+    sendResponse({ success: true });
+    return;
   }
   
   // Handle cache operations
