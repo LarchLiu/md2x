@@ -39,6 +39,7 @@ class DocxExporter {
     this.listInstanceCounter = 0; // Counter for list instances to restart numbering
     this.mathJaxInitialized = false; // Track MathJax initialization
     this.baseUrl = null; // Base URL for resolving relative paths
+    this.pendingBlockSpacing = 0; // Spacing to apply before the next block-level element
   }
 
   /**
@@ -477,6 +478,7 @@ class DocxExporter {
 
     // Reset list instance counter for each document
     this.listInstanceCounter = 0;
+    this.pendingBlockSpacing = 0;
 
     for (const node of ast.children) {
       // Add minimal spacing paragraph between consecutive thematicBreaks to prevent merging
@@ -514,6 +516,10 @@ class DocxExporter {
       }
 
       lastNodeType = node.type;
+
+      if (node.type === 'table') {
+        this.pendingBlockSpacing = Math.max(this.pendingBlockSpacing, 360);
+      }
     }
 
     return elements;
@@ -574,11 +580,11 @@ class DocxExporter {
     const paragraphConfig = {
       text: text,
       heading: level,
-      spacing: {
+      spacing: this.applyPendingSpacing({
         before: spacingBefore,
         after: spacingAfter,
         line: 360, // 1.5 line spacing (360 = 1.5 * 240)
-      },
+      }),
     };
 
     // H1 should be centered and larger
@@ -605,6 +611,18 @@ class DocxExporter {
   }
 
   /**
+   * Apply spacing reserved for the next block-level element.
+   */
+  applyPendingSpacing(spacing = {}) {
+    if (this.pendingBlockSpacing > 0) {
+      const before = spacing.before || 0;
+      spacing.before = Math.max(before, this.pendingBlockSpacing);
+      this.pendingBlockSpacing = 0;
+    }
+    return spacing;
+  }
+
+  /**
    * Convert paragraph node
    */
   async convertParagraph(node, parentStyle = {}) {
@@ -612,21 +630,25 @@ class DocxExporter {
 
     if (children.length === 0) {
       // Empty paragraph
+      const spacing = this.applyPendingSpacing({
+        after: 240,
+        line: 360,
+      });
+
       return new Paragraph({
         text: '',
-        spacing: {
-          after: 240, // 16px -> 12pt
-          line: 360,  // 1.5 line spacing
-        },
+        spacing: spacing,
       });
     }
 
+    const spacing = this.applyPendingSpacing({
+      after: 240,
+      line: 360,
+    });
+
     return new Paragraph({
       children: children,
-      spacing: {
-        after: 240, // 16px -> 12pt
-        line: 360,  // 1.5 line spacing
-      },
+      spacing: spacing,
     });
   }
 
@@ -1143,10 +1165,10 @@ class DocxExporter {
 
         const paragraphConfig = {
           children: children,
-          spacing: {
+          spacing: this.applyPendingSpacing({
             after: 60,  // 0.25em spacing between items
             line: 360,  // 1.5 line spacing
-          },
+          }),
         };
 
         // Use numbering for ordered lists, bullet for unordered lists
@@ -1201,11 +1223,11 @@ class DocxExporter {
 
     return new Paragraph({
       children: runs,
-      spacing: {
+      spacing: this.applyPendingSpacing({
         before: 240, // 16px = 12pt
         after: 240,  // 16px = 12pt
         line: 348,   // 1.45 line height for code blocks
-      },
+      }),
       shading: {
         fill: 'F6F8FA', // Light gray background matching CSS
       },
@@ -1247,11 +1269,11 @@ class DocxExporter {
         const children = await this.convertInlineNodes(child.children, { color: '6A737D' }); // Gray text
         paragraphs.push(new Paragraph({
           children: children,
-          spacing: {
-            before: 0,   // No external spacing
-            after: 0,    // No external spacing
-            line: 360,   // 1.5 line spacing
-          },
+          spacing: this.applyPendingSpacing({
+            before: 0,
+            after: 0,
+            line: 360,
+          }),
           indent: {
             left: convertInchesToTwip(outerIndent - leftBorderAndPadding),     // Compensate for left border and padding
             right: convertInchesToTwip(rightBorderAndPadding),                 // Compensate for right padding
@@ -1301,13 +1323,13 @@ class DocxExporter {
    */
   async convertTable(node) {
     const rows = [];
-    let isHeaderRow = true;
-
-    // Get table alignment info from AST
     const alignments = node.align || [];
+    const tableRows = node.children.filter((row) => row.type === 'tableRow');
+    const rowCount = tableRows.length;
 
-    // Process table rows
-    for (const row of node.children) {
+    for (let rowIndex = 0; rowIndex < rowCount; rowIndex++) {
+      const row = tableRows[rowIndex];
+      const isHeaderRow = rowIndex === 0;
       if (row.type === 'tableRow') {
         const cells = [];
 
@@ -1372,12 +1394,10 @@ class DocxExporter {
           children: cells,
           tableHeader: isHeaderRow, // Mark first row as header
         }));
-
-        isHeaderRow = false; // Only first row is header
       }
     }
 
-    return new Table({
+    const table = new Table({
       rows: rows,
       layout: TableLayoutType.AUTOFIT, // Auto-fit to content
       borders: {
@@ -1390,6 +1410,8 @@ class DocxExporter {
       },
       alignment: AlignmentType.CENTER, // Center table like in CSS
     });
+
+    return table;
   }
 
   /**
@@ -1439,6 +1461,7 @@ class DocxExporter {
           color: '666666',
         }),
       ],
+      spacing: this.applyPendingSpacing({ before: 120, after: 120 }),
     });
   }
 
@@ -1452,10 +1475,10 @@ class DocxExporter {
 
       return new Paragraph({
         children: [math],
-        spacing: {
+        spacing: this.applyPendingSpacing({
           before: 120, // 6pt
           after: 120,  // 6pt
-        },
+        }),
         alignment: AlignmentType.CENTER,
       });
     } catch (error) {
@@ -1469,7 +1492,7 @@ class DocxExporter {
             size: 24, // 12pt
           }),
         ],
-        spacing: { before: 120, after: 120 },
+        spacing: this.applyPendingSpacing({ before: 120, after: 120 }),
       });
     }
   }
@@ -1529,6 +1552,7 @@ class DocxExporter {
             color: '666666',
           }),
         ],
+        spacing: this.applyPendingSpacing({ before: 240, after: 240 }),
       });
     }
 
@@ -1579,10 +1603,10 @@ class DocxExporter {
           }),
         ],
         alignment: AlignmentType.CENTER,
-        spacing: {
+        spacing: this.applyPendingSpacing({
           before: 240,
           after: 240,
-        },
+        }),
       });
     } catch (error) {
       console.warn('Failed to render Mermaid diagram:', error);
@@ -1596,6 +1620,7 @@ class DocxExporter {
             color: 'FF0000',
           }),
         ],
+        spacing: this.applyPendingSpacing({ before: 240, after: 240 }),
       });
     }
   }
@@ -1614,6 +1639,7 @@ class DocxExporter {
             color: '666666',
           }),
         ],
+        spacing: this.applyPendingSpacing({ before: 240, after: 240 }),
       });
     }
 
@@ -1661,10 +1687,10 @@ class DocxExporter {
           }),
         ],
         alignment: AlignmentType.CENTER,
-        spacing: {
+        spacing: this.applyPendingSpacing({
           before: 240,
           after: 240,
-        },
+        }),
       });
     } catch (error) {
       console.warn('Failed to render HTML diagram:', error);
@@ -1676,6 +1702,7 @@ class DocxExporter {
             color: 'FF0000',
           }),
         ],
+        spacing: this.applyPendingSpacing({ before: 240, after: 240 }),
       });
     }
   }
