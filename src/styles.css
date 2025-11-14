@@ -189,6 +189,17 @@ body.toc-hidden #markdown-wrapper {
   margin: 0 -8px;
 }
 
+#table-of-contents a.active {
+  color: #007acc;
+  font-weight: 600;
+  background-color: #e3f2fd;
+  padding: 2px 8px;
+  border-radius: 4px;
+  margin: 0 -8px;
+  border-left: 3px solid #007acc;
+  padding-left: 5px;
+}
+
 #markdown-wrapper {
   margin-left: 280px;
   margin-top: 50px;
@@ -224,8 +235,8 @@ body.toc-hidden #markdown-wrapper {
 #markdown-content h5,
 #markdown-content h6 {
   font-weight: 800;
-  scroll-margin-top: 60px;
-  /* Offset for fixed toolbar (50px) + 10px padding */
+  scroll-margin-top: 50px;
+  /* Offset for fixed toolbar (50px) */
 }
 
 #markdown-content h1 {

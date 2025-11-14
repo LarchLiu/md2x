@@ -1077,6 +1077,9 @@ ${truncatedMarkup}`;
   let scrollTimeout;
   try {
     window.addEventListener('scroll', () => {
+      // Update active TOC item
+      updateActiveTocItem();
+      
       // Debounce scroll saving to avoid too frequent background messages
       clearTimeout(scrollTimeout);
       scrollTimeout = setTimeout(() => {
@@ -1093,6 +1096,89 @@ ${truncatedMarkup}`;
     });
   } catch (e) {
     // Scroll event listener setup failed, continuing without scroll persistence
+  }
+
+  /**
+   * Update active TOC item based on scroll position
+   * Highlights the last heading that is above the viewport top
+   */
+  function updateActiveTocItem() {
+    const contentDiv = document.getElementById('markdown-content');
+    const tocDiv = document.getElementById('table-of-contents');
+    
+    if (!contentDiv || !tocDiv) return;
+    
+    const headings = contentDiv.querySelectorAll('h1, h2, h3, h4, h5, h6');
+    if (headings.length === 0) return;
+    
+    // Get current scroll position
+    const scrollTop = window.scrollY || window.pageYOffset;
+    
+    // Threshold: toolbar height (50px) + small tolerance (10px)
+    // getBoundingClientRect() already accounts for zoom, so no adjustment needed
+    const threshold = 60;
+    
+    // Find the last heading that is above or near the viewport top
+    let activeHeading = null;
+    
+    for (let i = 0; i < headings.length; i++) {
+      const heading = headings[i];
+      const headingTop = heading.getBoundingClientRect().top + scrollTop;
+      
+      // If heading is above viewport top + threshold
+      if (headingTop <= scrollTop + threshold) {
+        activeHeading = heading;
+      } else {
+        // Headings are in order, so we can break once we find one below
+        break;
+      }
+    }
+    
+    // Update TOC highlighting
+    const tocLinks = tocDiv.querySelectorAll('a');
+    tocLinks.forEach(link => {
+      link.classList.remove('active');
+    });
+    
+    if (activeHeading && activeHeading.id) {
+      const activeLink = tocDiv.querySelector(`a[href="#${activeHeading.id}"]`);
+      if (activeLink) {
+        activeLink.classList.add('active');
+        
+        // Scroll TOC to make active item visible
+        scrollTocToActiveItem(activeLink, tocDiv);
+      }
+    }
+  }
+
+  /**
+   * Scroll TOC container to ensure active item is visible
+   * @param {Element} activeLink - The active TOC link element
+   * @param {Element} tocDiv - The TOC container element
+   */
+  function scrollTocToActiveItem(activeLink, tocDiv) {
+    if (!activeLink || !tocDiv) return;
+    
+    const linkRect = activeLink.getBoundingClientRect();
+    const tocRect = tocDiv.getBoundingClientRect();
+    
+    // Calculate if link is outside visible area
+    const linkTop = linkRect.top - tocRect.top + tocDiv.scrollTop;
+    const linkBottom = linkTop + linkRect.height;
+    
+    const visibleTop = tocDiv.scrollTop;
+    const visibleBottom = visibleTop + tocDiv.clientHeight;
+    
+    // Add some padding for better UX
+    const padding = 20;
+    
+    if (linkTop < visibleTop + padding) {
+      // Link is above visible area, scroll up
+      tocDiv.scrollTop = linkTop - padding;
+    } else if (linkBottom > visibleBottom - padding) {
+      // Link is below visible area, scroll down
+      tocDiv.scrollTop = linkBottom - tocDiv.clientHeight + padding;
+    }
   }
 
   async function renderMarkdown(markdown, savedScrollPosition = 0) {
@@ -1345,6 +1431,14 @@ ${truncatedMarkup}`;
       if (contentDiv) {
         // Apply zoom using CSS zoom property (like browser zoom)
         contentDiv.style.zoom = (zoomLevel / 100);
+        
+        // Update scroll-margin-top for all headings to account for zoom
+        // Formula: 50px (toolbar height) / zoom ratio
+        const scrollMargin = 50 / (zoomLevel / 100);
+        const headings = contentDiv.querySelectorAll('h1, h2, h3, h4, h5, h6');
+        headings.forEach(heading => {
+          heading.style.scrollMarginTop = scrollMargin + 'px';
+        });
       }
       
       // Save zoom level
