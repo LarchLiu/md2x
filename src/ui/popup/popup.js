@@ -3,7 +3,7 @@
 // Note: Popup cannot access IndexedDB directly due to security restrictions
 // We use BackgroundCacheProxy to communicate with content scripts through background script
 
-import Localization, { DEFAULT_SETTING_LOCALE } from './localization.js';
+import Localization, { DEFAULT_SETTING_LOCALE } from '../../utils/localization.js';
 
 const translate = (key, substitutions) => Localization.translate(key, substitutions);
 

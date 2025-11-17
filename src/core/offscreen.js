@@ -1,5 +1,5 @@
 // Offscreen document script for rendering
-import { renderers } from './renderers/index.js';
+import { renderers } from '../renderers/index.js';
 
 // Create renderer map for quick lookup
 const rendererMap = new Map(

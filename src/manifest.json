@@ -17,7 +17,7 @@
     "http://*/*"
   ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "core/background.js"
   },
   "content_scripts": [
     {
@@ -27,15 +27,15 @@
         "*://*/*.md",
         "*://*/*.markdown"
       ],
-      "js": ["content-detector.js"],
+      "js": ["core/content-detector.js"],
       "run_at": "document_start"
     }
   ],
   "web_accessible_resources": [
     {
       "resources": [
-        "styles.css",
-        "offscreen.html",
+        "ui/styles.css",
+        "ui/offscreen.html",
         "*.woff2",
         "*.woff",
         "*.ttf",
@@ -51,7 +51,7 @@
     }
   ],
   "action": {
-    "default_popup": "popup.html",
+    "default_popup": "ui/popup/popup.html",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",

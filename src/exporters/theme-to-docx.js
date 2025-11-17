@@ -1,7 +1,7 @@
 // Theme to DOCX Converter
 // Converts theme configuration to DOCX styles
 
-import themeManager from './theme-manager.js';
+import themeManager from '../utils/theme-manager.js';
 import { BorderStyle } from 'docx';
 
 /**

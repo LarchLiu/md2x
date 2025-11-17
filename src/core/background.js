@@ -1,5 +1,5 @@
 // Background script for handling messages between content script and offscreen document
-import ExtensionCacheManager from './cache-manager.js';
+import ExtensionCacheManager from '../utils/cache-manager.js';
 
 let offscreenCreated = false;
 let globalCacheManager = null;
@@ -409,7 +409,7 @@ async function ensureOffscreenDocument() {
   // Try to create offscreen document
   // Multiple concurrent requests might try to create, but that's OK
   try {
-    const offscreenUrl = chrome.runtime.getURL('offscreen.html');
+    const offscreenUrl = chrome.runtime.getURL('ui/offscreen.html');
 
     await chrome.offscreen.createDocument({
       url: offscreenUrl,
@@ -437,13 +437,13 @@ async function handleContentScriptInjection(tabId, sendResponse) {
     // Inject CSS first
     await chrome.scripting.insertCSS({
       target: { tabId: tabId },
-      files: ['styles.css']
+      files: ['ui/styles.css']
     });
 
     // Then inject JavaScript
     await chrome.scripting.executeScript({
       target: { tabId: tabId },
-      files: ['content.js']
+      files: ['core/content.js']
     });
 
     sendResponse({ success: true });

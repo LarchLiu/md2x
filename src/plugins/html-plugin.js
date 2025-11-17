@@ -4,7 +4,7 @@
  * Handles HTML code block processing in content script and DOCX export
  */
 import { BasePlugin } from './base-plugin.js';
-import { sanitizeAndCheck } from '../html-sanitizer.js';
+import { sanitizeAndCheck } from '../utils/html-sanitizer.js';
 
 export class HtmlPlugin extends BasePlugin {
   constructor() {

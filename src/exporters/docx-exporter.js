@@ -28,11 +28,11 @@ import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
 import remarkMath from 'remark-math';
 import { visit } from 'unist-util-visit';
-import { uploadInChunks, abortUpload } from './upload-manager.js';
+import { uploadInChunks, abortUpload } from '../utils/upload-manager.js';
 import hljs from 'highlight.js/lib/common';
 import { loadThemeForDOCX } from './theme-to-docx.js';
-import themeManager from './theme-manager.js';
-import { getPluginForNode, convertNodeToDOCX } from './plugins/index.js';
+import themeManager from '../utils/theme-manager.js';
+import { getPluginForNode, convertNodeToDOCX } from '../plugins/index.js';
 
 /**
  * Main class for exporting Markdown to DOCX

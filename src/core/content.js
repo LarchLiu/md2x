@@ -10,12 +10,12 @@ import rehypeKatex from 'rehype-katex';
 import rehypeHighlight from 'rehype-highlight';
 import rehypeStringify from 'rehype-stringify';
 import { visit } from 'unist-util-visit';
-import ExtensionRenderer from './renderer.js';
-import DocxExporter from './docx-exporter.js';
-import Localization, { DEFAULT_SETTING_LOCALE } from './localization.js';
-import themeManager from './theme-manager.js';
-import { loadAndApplyTheme } from './theme-to-css.js';
-import { registerRemarkPlugins, getPluginByType } from './plugins/index.js';
+import ExtensionRenderer from '../utils/renderer.js';
+import DocxExporter from '../exporters/docx-exporter.js';
+import Localization, { DEFAULT_SETTING_LOCALE } from '../utils/localization.js';
+import themeManager from '../utils/theme-manager.js';
+import { loadAndApplyTheme } from '../utils/theme-to-css.js';
+import { registerRemarkPlugins, getPluginByType } from '../plugins/index.js';
 
 async function initializeContentScript() {
 

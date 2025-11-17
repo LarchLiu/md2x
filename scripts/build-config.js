@@ -49,14 +49,14 @@ const copyFileIfExists = (sourcePath, targetPath, logMessage) => {
 export const createBuildConfig = () => {
   const config = {
     entryPoints: {
-      'content-detector': 'src/content-detector.js',
-      'content': 'src/content.js',
-      'background': 'src/background.js',
-      'popup': 'src/popup.js',
-      'offscreen': 'src/offscreen.js',
-      'styles': 'src/styles.css',
-      'print': 'src/print.js',
-      'print-page': 'src/print-page.css'
+      'core/content-detector': 'src/core/content-detector.js',
+      'core/content': 'src/core/content.js',
+      'core/background': 'src/core/background.js',
+      'core/offscreen': 'src/core/offscreen.js',
+      'ui/popup/popup': 'src/ui/popup/popup.js',
+      'ui/print/print': 'src/ui/print/print.js',
+      'ui/print/print-page': 'src/ui/print/print-page.css',
+      'ui/styles': 'src/ui/styles.css'
     },
     bundle: true,
     outdir: 'dist',
@@ -89,9 +89,9 @@ export const createBuildConfig = () => {
             try {
               const fileCopies = [
                 { src: 'src/manifest.json', dest: 'dist/manifest.json', log: '📄 Copied manifest.json from src/' },
-                { src: 'src/popup.html', dest: 'dist/popup.html' },
-                { src: 'src/offscreen.html', dest: 'dist/offscreen.html' },
-                { src: 'src/print.html', dest: 'dist/print.html' },
+                { src: 'src/ui/popup/popup.html', dest: 'dist/ui/popup/popup.html' },
+                { src: 'src/ui/offscreen.html', dest: 'dist/ui/offscreen.html' },
+                { src: 'src/ui/print/print.html', dest: 'dist/ui/print/print.html' },
                 { src: 'node_modules/html2canvas/dist/html2canvas.min.js', dest: 'dist/html2canvas.min.js', log: '📄 Copied html2canvas library' }
               ];
 
@@ -105,10 +105,15 @@ export const createBuildConfig = () => {
               // esbuild bundles fonts to dist/ root with relative paths like ./KaTeX_*.woff2
               // We convert them to absolute Chrome extension URLs so they work in content scripts
               // __MSG_@@extension_id__ will be resolved by Chrome when CSS is injected
-              const stylesCssSource = 'dist/styles.css';
+              const stylesCssSource = 'dist/ui/styles.css';
 
               if (fs.existsSync(stylesCssSource)) {
                 let stylesContent = fs.readFileSync(stylesCssSource, 'utf8');
+                // Fix both ./ and ../ paths for KaTeX fonts
+                stylesContent = stylesContent.replace(
+                  /url\("\.\.\/KaTeX_([^"]+)"\)/g,
+                  'url("chrome-extension://__MSG_@@extension_id__/KaTeX_$1")'
+                );
                 stylesContent = stylesContent.replace(
                   /url\("\.\/KaTeX_([^"]+)"\)/g,
                   'url("chrome-extension://__MSG_@@extension_id__/KaTeX_$1")'

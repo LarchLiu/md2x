@@ -4,7 +4,7 @@
  * Renders HTML code blocks to PNG images using html2canvas
  */
 import { BaseRenderer } from './base-renderer.js';
-import { sanitizeHtml, hasHtmlContent } from '../html-sanitizer.js';
+import { sanitizeHtml, hasHtmlContent } from '../utils/html-sanitizer.js';
 
 export class HtmlRenderer extends BaseRenderer {
   constructor() {
