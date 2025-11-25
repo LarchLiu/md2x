@@ -4,6 +4,39 @@
  * Abstract base class for diagram plugins in content script and docx-exporter.
  * Each plugin handles one diagram type's AST processing and DOCX conversion.
  */
+
+/**
+ * Calculate appropriate image dimensions for DOCX to fit within page constraints
+ * Maximum width: 6 inches (page width with 1 inch margins on letter size,留出安全边距)
+ * Maximum height: 9.5 inches (page height with 1 inch margins on letter size, 接近实际可用高度)
+ * @param {number} originalWidth - Original image width in pixels
+ * @param {number} originalHeight - Original image height in pixels
+ * @returns {Object} - {width: number, height: number} in pixels
+ */
+export function calculateImageDimensions(originalWidth, originalHeight) {
+  const maxWidthInches = 6;    // 8.5 - 1 - 1 = 6.5, use 6 for safety
+  const maxHeightInches = 9.5; // 11 - 1 - 1 = 9, use 9.5 to maximize vertical space
+  const maxWidthPixels = maxWidthInches * 96;  // 96 DPI = 576 pixels
+  const maxHeightPixels = maxHeightInches * 96; // 96 DPI = 912 pixels
+
+  // If image is smaller than both max width and height, use original size
+  if (originalWidth <= maxWidthPixels && originalHeight <= maxHeightPixels) {
+    return { width: originalWidth, height: originalHeight };
+  }
+
+  // Calculate scaling ratios for both dimensions
+  const widthRatio = maxWidthPixels / originalWidth;
+  const heightRatio = maxHeightPixels / originalHeight;
+  
+  // Use the smaller ratio to ensure the image fits within both constraints
+  const ratio = Math.min(widthRatio, heightRatio);
+  
+  return {
+    width: Math.round(originalWidth * ratio),
+    height: Math.round(originalHeight * ratio)
+  };
+}
+
 export class BasePlugin {
   /**
    * @param {string} type - Plugin type identifier (e.g., 'mermaid', 'vega')
@@ -308,18 +341,11 @@ export class BasePlugin {
       }
 
       // Calculate display size (1/4 of original PNG size)
-      let displayWidth = Math.round(pngResult.width / 4);
-      let displayHeight = Math.round(pngResult.height / 4);
+      const scaledWidth = Math.round(pngResult.width / 4);
+      const scaledHeight = Math.round(pngResult.height / 4);
 
-      // Apply max-width constraint (6 inches)
-      const maxWidthInches = 6;
-      const maxWidthPixels = maxWidthInches * 96; // 576 pixels
-
-      if (displayWidth > maxWidthPixels) {
-        const ratio = maxWidthPixels / displayWidth;
-        displayWidth = maxWidthPixels;
-        displayHeight = Math.round(displayHeight * ratio);
-      }
+      // Apply max-width and max-height constraints using shared utility
+      const { width: displayWidth, height: displayHeight } = calculateImageDimensions(scaledWidth, scaledHeight);
 
       const imageRun = new ImageRun({
         data: bytes,

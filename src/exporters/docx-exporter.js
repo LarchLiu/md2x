@@ -33,6 +33,7 @@ import hljs from 'highlight.js/lib/common';
 import { loadThemeForDOCX } from './theme-to-docx.js';
 import themeManager from '../utils/theme-manager.js';
 import { getPluginForNode, convertNodeToDOCX } from '../plugins/index.js';
+import { calculateImageDimensions } from '../plugins/base-plugin.js';
 
 /**
  * Main class for exporting Markdown to DOCX
@@ -1032,30 +1033,6 @@ class DocxExporter {
   }
 
   /**
-   * Calculate appropriate dimensions for DOCX
-   * Maximum width: 6 inches (page width with 1 inch margins on letter size)
-   * @param {number} originalWidth - Original image width
-   * @param {number} originalHeight - Original image height
-   * @returns {Object} - {width: number, height: number} in pixels
-   */
-  calculateImageDimensions(originalWidth, originalHeight) {
-    const maxWidthInches = 6; // 8.5 - 1 - 1 = 6.5, use 6 for safety
-    const maxWidthPixels = maxWidthInches * 96; // 96 DPI = 576 pixels
-
-    // If image is smaller than max width, use original size
-    if (originalWidth <= maxWidthPixels) {
-      return { width: originalWidth, height: originalHeight };
-    }
-
-    // Scale down proportionally
-    const ratio = maxWidthPixels / originalWidth;
-    return {
-      width: maxWidthPixels,
-      height: Math.round(originalHeight * ratio)
-    };
-  }
-
-  /**
    * Convert image node
    */
   async convertImage(node) {
@@ -1068,7 +1045,7 @@ class DocxExporter {
         await this.getImageDimensions(buffer, contentType);
 
       // Calculate display dimensions in pixels
-      const { width: widthPx, height: heightPx } = this.calculateImageDimensions(originalWidth, originalHeight);
+      const { width: widthPx, height: heightPx } = calculateImageDimensions(originalWidth, originalHeight);
 
       // Determine image type from content type or URL
       let imageType = 'png'; // default
