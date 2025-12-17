@@ -50,10 +50,11 @@ export const createBuildConfig = () => {
   const config = {
     entryPoints: {
       'core/content-detector': 'src/core/content-detector.ts',
-      'core/content': 'src/core/content.js',
-      'core/background': 'src/core/background.js',
-      'core/offscreen': 'src/platform/chrome/render-worker.js',
-      'ui/popup/popup': 'src/ui/popup/popup.js',
+      'core/main': 'src/core/main.ts',
+      'core/background': 'src/core/background.ts',
+      'core/offscreen-render-worker': 'src/platform/chrome/offscreen-render-worker.ts',
+      'ui/iframe-render-worker': 'src/renderers/worker/dom/iframe-render-worker.ts',
+      'ui/popup/popup': 'src/ui/popup/popup.ts',
       'ui/styles': 'src/ui/styles.css'
     },
     bundle: true,
@@ -89,7 +90,8 @@ export const createBuildConfig = () => {
                 { src: 'src/manifest.json', dest: 'dist/chrome/manifest.json', log: '📄 Copied manifest.json from src/' },
                 { src: 'src/ui/popup/popup.html', dest: 'dist/chrome/ui/popup/popup.html' },
                 { src: 'src/ui/popup/popup.css', dest: 'dist/chrome/ui/popup/popup.css' },
-                { src: 'src/platform/chrome/render-worker.html', dest: 'dist/chrome/ui/offscreen.html' },
+                { src: 'src/platform/chrome/offscreen-render.html', dest: 'dist/chrome/ui/offscreen-render.html' },
+                { src: 'src/renderers/worker/dom/iframe-render.html', dest: 'dist/chrome/ui/iframe-render.html' },
                 { src: 'node_modules/html2canvas/dist/html2canvas.min.js', dest: 'dist/chrome/html2canvas.min.js', log: '📄 Copied html2canvas library' }
               ];
 

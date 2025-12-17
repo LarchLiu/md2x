@@ -2,10 +2,10 @@
  * Plugin Registry
  * 
  * Centralized plugin management system.
- * New plugins can be added here without modifying content.js or docx-exporter.js.
+ * New plugins can be added here without modifying main.js or docx-exporter.js.
  * 
  * Architecture:
- * - registerRemarkPlugins(): Register all plugins for remark processing (content.js)
+ * - registerRemarkPlugins(): Register all plugins for remark processing (main.js)
  * - getPluginByType(): Get a specific plugin by type (docx-exporter.js)
  * - plugins: Direct access to plugin array (for advanced use)
  */

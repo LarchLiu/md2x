@@ -31,6 +31,9 @@ import { RenderChannel } from '../../messaging/channels/render-channel';
 import { FlutterJsChannelTransport } from '../../messaging/transports/flutter-jschannel-transport';
 import { WindowPostMessageTransport } from '../../messaging/transports/window-postmessage-transport';
 
+import type { RenderHost } from '../../renderers/host/render-host';
+import { IframeRenderHost } from '../../renderers/host/iframe-render-host';
+
 // ============================================================================
 // Type Definitions
 // ============================================================================
@@ -69,8 +72,6 @@ declare global {
       postMessage: (message: string) => void;
     };
     __receiveMessageFromHost?: (payload: unknown) => void;
-    __renderFrameReady?: boolean;
-    __renderFrameReadyCallbacks?: Array<() => void>;
     __mobilePlatformCache?: MobileCacheService;
   }
 }
@@ -359,24 +360,21 @@ interface MobileRenderResult {
  * Similar to Chrome extension's offscreen document approach
  * Extends BaseRendererService for common theme config handling
  * 
- * Uses global state set up by inline script in index.html:
- * - window.__renderFrameReady
- * - window.__renderFrameReadyCallbacks
+ * Uses postMessage READY/ACK handshake with render frame.
  */
 class MobileRendererService extends BaseRendererService {
-  private iframe: HTMLIFrameElement | null;
-  private readyPromise: Promise<void> | null;
+  private host: RenderHost;
   private requestQueue: Promise<void>;
   private queueContext: QueueContext;
-  private renderChannel: RenderChannel | null;
 
   constructor() {
     super();
-    this.iframe = null;
-    this.readyPromise = null;
+    this.host = new IframeRenderHost({
+      iframeUrl: './iframe-render.html',
+      source: 'mobile-parent',
+    });
     this.requestQueue = Promise.resolve();
     this.queueContext = { cancelled: false, id: 0 };
-    this.renderChannel = null;
   }
 
   /**
@@ -397,62 +395,10 @@ class MobileRendererService extends BaseRendererService {
   }
 
   /**
-   * Check if render frame is ready
-   */
-  get isReady(): boolean {
-    return window.__renderFrameReady || false;
-  }
-
-  private getOrCreateRenderChannel(): RenderChannel {
-    if (!this.iframe || !this.iframe.contentWindow) {
-      throw new Error('Render frame not available');
-    }
-
-    if (!this.renderChannel) {
-      const targetWindow = this.iframe.contentWindow;
-      this.renderChannel = new RenderChannel(
-        new WindowPostMessageTransport(targetWindow, {
-          targetOrigin: '*',
-          acceptSource: targetWindow,
-        }),
-        {
-          source: 'mobile-parent',
-          timeoutMs: 60_000,
-        }
-      );
-    }
-
-    return this.renderChannel;
-  }
-
-  /**
    * Wait for render iframe to be ready
    */
   async ensureIframe(): Promise<void> {
-    if (!this.iframe) {
-      this.iframe = document.getElementById('render-frame') as HTMLIFrameElement | null;
-    }
-
-    if (this.isReady) {
-      return;
-    }
-
-    if (this.readyPromise) {
-      return this.readyPromise;
-    }
-
-    this.readyPromise = new Promise((resolve, reject) => {
-      window.__renderFrameReadyCallbacks!.push(resolve);
-
-      setTimeout(() => {
-        if (!this.isReady) {
-          console.error('[MobileRenderer] Render frame load timeout');
-          reject(new Error('Render frame load timeout'));
-        }
-      }, 15000);
-    });
-
-    return this.readyPromise;
+    await this.host.ensureReady();
   }
 
   /**
@@ -497,19 +443,12 @@ class MobileRendererService extends BaseRendererService {
       return Promise.reject(new Error('Request cancelled'));
     }
 
-    if (!this.iframe || !this.isReady) {
-      return Promise.reject(new Error('Render frame not ready'));
-    }
-
-    const channel = this.getOrCreateRenderChannel();
-    return channel
-      .send(type, payload, { timeoutMs: timeout })
-      .then((data) => {
-        if (context.cancelled) {
-          throw new Error('Request cancelled');
-        }
-        return data as T;
-      });
+    return this.host.send<T>(type, payload, timeout).then((data) => {
+      if (context.cancelled) {
+        throw new Error('Request cancelled');
+      }
+      return data as T;
+    });
   }
 
   // Keep for compatibility, but not used with iframe approach
@@ -586,13 +525,7 @@ class MobileRendererService extends BaseRendererService {
   }
 
   async cleanup(): Promise<void> {
-    this.renderChannel?.close();
-    this.renderChannel = null;
-    if (this.iframe && this.iframe.parentNode) {
-      this.iframe.parentNode.removeChild(this.iframe);
-      this.iframe = null;
-      this.readyPromise = null;
-    }
+    await this.host.cleanup?.();
   }
 }
 

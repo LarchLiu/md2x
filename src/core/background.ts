@@ -654,7 +654,7 @@ async function ensureOffscreenDocument(): Promise<void> {
 
   // Try to create offscreen document
   try {
-    const offscreenUrl = chrome.runtime.getURL('ui/offscreen.html');
+    const offscreenUrl = chrome.runtime.getURL('ui/offscreen-render.html');
 
     await chrome.offscreen.createDocument({
       url: offscreenUrl,
@@ -719,7 +719,7 @@ async function handleContentScriptInjection(tabId: number): Promise<void> {
     // Then inject JavaScript
     await chrome.scripting.executeScript({
       target: { tabId: tabId },
-      files: ['core/content.js']
+      files: ['core/main.js']
     });
   } catch (error) {
     throw error;

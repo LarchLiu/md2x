@@ -2,7 +2,8 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Offscreen Renderer</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Render Frame</title>
   <style>
     * { margin: 0; padding: 0; }
     html, body {
@@ -14,8 +15,8 @@
 </head>
 <body>
   <div id="render-container"></div>
-  <canvas id="png-canvas" style="position: absolute; top: -9999px; left: -9999px;"></canvas>
-  
-  <script type="module" src="../core/offscreen.js"></script>
+  <canvas id="png-canvas"></canvas>
+
+  <script src="./iframe-render-worker.js"></script>
 </body>
 </html>

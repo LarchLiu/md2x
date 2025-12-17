@@ -35,7 +35,9 @@
     {
       "resources": [
         "ui/styles.css",
-        "ui/offscreen.html",
+        "ui/offscreen-render.html",
+        "ui/iframe-render.html",
+        "ui/iframe-render-worker.js",
         "*.woff2",
         "*.woff",
         "*.ttf",

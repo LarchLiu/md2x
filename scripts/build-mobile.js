@@ -49,14 +49,14 @@ function copyFile(src, dest) {
 
 /**
  * Build main bundle (lightweight - no heavy renderers)
- * Heavy renderers (mermaid, vega) are in render-frame bundle
+ * Heavy renderers (mermaid, vega) are in iframe-render-worker bundle
  */
 async function buildMainBundle() {
   console.log('📦 Building main bundle (lightweight)...');
 
   await build({
     entryPoints: {
-      'bundle': 'src/platform/mobile/main.js'
+      'bundle': 'src/platform/mobile/main.ts'
     },
     bundle: true,
     outdir: DIST_DIR,
@@ -87,12 +87,12 @@ async function buildMainBundle() {
  * Build render frame bundle (heavy renderers: mermaid, vega, etc.)
  * Runs in isolated iframe to avoid blocking main thread
  */
-async function buildRenderFrameBundle() {
-  console.log('📦 Building render-frame bundle (renderers)...');
+async function buildIframeRenderWorkerBundle() {
+  console.log('📦 Building iframe-render-worker bundle (renderers)...');
 
   await build({
     entryPoints: {
-      'render-frame': 'src/platform/mobile/render-worker.js'
+      'iframe-render-worker': 'src/renderers/worker/dom/iframe-render-worker.ts'
     },
     bundle: true,
     outdir: DIST_DIR,
@@ -116,7 +116,7 @@ async function buildRenderFrameBundle() {
     external: []
   });
 
-  console.log(`✅ Render frame bundle created: ${DIST_DIR}/render-frame.js`);
+  console.log(`✅ Iframe render worker bundle created: ${DIST_DIR}/iframe-render-worker.js`);
 }
 
 /**
@@ -166,8 +166,8 @@ function copyResources() {
   copyFile('src/platform/mobile/index.html', `${DIST_DIR}/index.html`);
   console.log('  ✓ index.html');
   
-  copyFile('src/platform/mobile/render-worker.html', `${DIST_DIR}/render-frame.html`);
-  console.log('  ✓ render-frame.html');
+  copyFile('src/renderers/worker/dom/iframe-render.html', `${DIST_DIR}/iframe-render.html`);
+  console.log('  ✓ iframe-render.html');
 
   // Copy themes
   copyDirectory('src/themes', `${DIST_DIR}/themes`);
@@ -201,24 +201,24 @@ async function main() {
 
   try {
     await buildMainBundle();
-    await buildRenderFrameBundle();
+    await buildIframeRenderWorkerBundle();
     await buildStyles();
     copyResources();
 
     // Show bundle sizes
     const mainBundleSize = fs.statSync(`${DIST_DIR}/bundle.js`).size;
-    const renderBundleSize = fs.statSync(`${DIST_DIR}/render-frame.js`).size;
+    const renderBundleSize = fs.statSync(`${DIST_DIR}/iframe-render-worker.js`).size;
     const stylesSize = fs.statSync(`${DIST_DIR}/styles.css`).size;
     console.log(`\n📊 Bundle sizes:`);
     console.log(`   bundle.js:       ${(mainBundleSize / 1024 / 1024).toFixed(2)} MB (main view)`);
-    console.log(`   render-frame.js: ${(renderBundleSize / 1024 / 1024).toFixed(2)} MB (renderers)`);
+    console.log(`   iframe-render-worker.js: ${(renderBundleSize / 1024 / 1024).toFixed(2)} MB (renderers)`);
     console.log(`   styles.css:      ${(stylesSize / 1024).toFixed(2)} KB`);
 
     console.log('\n✨ Mobile build complete!');
     console.log(`📁 Output: ${DIST_DIR}/`);
     console.log('\nArchitecture:');
     console.log('  - index.html (main view, loads bundle.js)');
-    console.log('  - render-frame.html (iframe, loads render-frame.js for diagrams)');
+    console.log('  - iframe-render.html (iframe, loads iframe-render-worker.js for diagrams)');
   } catch (error) {
     console.error('❌ Build failed:', error);
     process.exit(1);

@@ -24,6 +24,10 @@ import type {
   SimpleCacheStats
 } from '../../types/index';
 
+import type { RenderHost } from '../../renderers/host/render-host';
+import { IframeRenderHost } from '../../renderers/host/iframe-render-host';
+import { OffscreenRenderHost } from './hosts/offscreen-render-host';
+
 // ============================================================================
 // Type Definitions
 // ============================================================================
@@ -292,8 +296,22 @@ export class ChromeCacheService extends BaseCacheService {
 // Extends BaseRendererService for common theme config handling
 // ============================================================================
 
+type ChromeRenderHostType = 'offscreen' | 'iframe';
+
+const DEFAULT_CHROME_RENDER_HOST_TYPE: ChromeRenderHostType = 'offscreen';
+
+function normalizeChromeRenderHostType(value: unknown): ChromeRenderHostType | null {
+  if (value === 'iframe') return 'iframe';
+  if (value === 'offscreen') return 'offscreen';
+  return null;
+}
+
 export class ChromeRendererService extends BaseRendererService {
   private messageService: ChromeMessageService;
+  private hostType: ChromeRenderHostType = DEFAULT_CHROME_RENDER_HOST_TYPE;
+  private offscreenHost: RenderHost | null = null;
+  private iframeHost: RenderHost | null = null;
+  private themeDirty = false;
   private cache: ChromeCacheService;
 
   constructor(messageService: ChromeMessageService, cacheService: ChromeCacheService) {
@@ -306,12 +324,46 @@ export class ChromeRendererService extends BaseRendererService {
     // Renderer initialization handled by background/offscreen
   }
 
+  private async getHost(): Promise<RenderHost> {
+    const override = normalizeChromeRenderHostType(
+      (globalThis as unknown as { __markdownViewerChromeRenderHost?: unknown }).__markdownViewerChromeRenderHost
+    );
+
+    this.hostType = override || DEFAULT_CHROME_RENDER_HOST_TYPE;
+
+    if (this.hostType === 'iframe') {
+      if (!this.iframeHost) {
+        const iframeUrl = chrome.runtime.getURL('ui/iframe-render.html');
+        this.iframeHost = new IframeRenderHost({
+          iframeUrl,
+          source: 'chrome-parent',
+        });
+      }
+      return this.iframeHost;
+    }
+
+    if (!this.offscreenHost) {
+      this.offscreenHost = new OffscreenRenderHost(this.messageService, 'chrome-renderer');
+    }
+    return this.offscreenHost;
+  }
+
+  private async applyThemeIfNeeded(host: RenderHost): Promise<void> {
+    if (!this.themeConfig) {
+      return;
+    }
+    if (!this.themeDirty) {
+      return;
+    }
+    await host.send('SET_THEME_CONFIG', { config: this.themeConfig }, 300000);
+    this.themeDirty = false;
+  }
+
   async setThemeConfig(config: RendererThemeConfig): Promise<void> {
     this.themeConfig = config;
-    const response = await this.messageService.sendEnvelope('SET_THEME_CONFIG', { config }, 300000, 'chrome-renderer');
-    if (!response.ok) {
-      throw new Error(response.error?.message || 'SET_THEME_CONFIG failed');
-    }
+    this.themeDirty = true;
+    const host = await this.getHost();
+    await this.applyThemeIfNeeded(host);
   }
 
   async render(type: string, content: string | object, options: RenderOptions = {}): Promise<RenderResult> {
@@ -327,7 +379,10 @@ export class ChromeRendererService extends BaseRendererService {
       return cached as RenderResult;
     }
 
-    const response = await this.messageService.sendEnvelope(
+    const host = await this.getHost();
+    await this.applyThemeIfNeeded(host);
+
+    const result = await host.send<RenderResult>(
       'RENDER_DIAGRAM',
       {
         renderType: type,
@@ -335,15 +390,8 @@ export class ChromeRendererService extends BaseRendererService {
         themeConfig: this.themeConfig,
         extraParams: options,
       },
-      300000,
-      'chrome-renderer'
+      300000
     );
-
-    if (!response.ok) {
-      throw new Error(response.error?.message || 'Render failed');
-    }
-
-    const result = response.data as RenderResult;
 
     // Cache the result asynchronously (don't wait)
     this.cache.set(cacheKey, result, cacheType).catch(() => {});

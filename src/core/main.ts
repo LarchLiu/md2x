@@ -1,38 +1,22 @@
-// Markdown Viewer Content Script - Chrome Extension Entry Point
-// Uses shared markdown-processor for core processing logic
+// Markdown Viewer Main - Chrome Extension Entry Point
+// Focuses on Chrome UI layout; markdown rendering orchestration is shared.
 
-import { unified, type Processor } from 'unified';
-import remarkParse from 'remark-parse';
-import remarkGfm from 'remark-gfm';
-import remarkBreaks from 'remark-breaks';
-import remarkMath from 'remark-math';
-import remarkRehype from 'remark-rehype';
-import rehypeSlug from 'rehype-slug';
-import rehypeKatex from 'rehype-katex';
-import rehypeHighlight from 'rehype-highlight';
-import rehypeStringify from 'rehype-stringify';
-import { visit } from 'unist-util-visit';
 import ExtensionRenderer from '../utils/renderer';
 import DocxExporter from '../exporters/docx-exporter';
 import Localization, { DEFAULT_SETTING_LOCALE } from '../utils/localization';
 import themeManager from '../utils/theme-manager';
 import { loadAndApplyTheme } from '../utils/theme-to-css';
-import { registerRemarkPlugins } from '../plugins/index';
 import { platform } from '../platform/chrome/index';
-import type { PluginRenderer } from '../types/index';
-import {
-  normalizeMathBlocks,
-  escapeHtml,
-  sanitizeRenderedHtml,
-  processTablesForWordCompatibility,
-  renderHtmlIncrementally
-} from './markdown-processor';
 
-// Import refactored modules
+import type { PluginRenderer, RendererThemeConfig } from '../types/index';
+
+import { renderMarkdownDocument } from './viewer/viewer-controller';
+import { escapeHtml } from './markdown-processor';
+
+// Chrome-specific modules
 import { BackgroundCacheManagerProxy } from './cache-proxy';
 import { createScrollManager } from './scroll-manager';
 import { createFileStateManager, getCurrentDocumentUrl, saveToHistory } from './file-state';
-import { createAsyncTaskQueue } from './async-task-queue';
 import { updateProgress, showProcessingIndicator, hideProcessingIndicator } from './ui/progress-indicator';
 import { createTocManager } from './ui/toc-manager';
 import { createToolbarManager, generateToolbarHTML, layoutIcons } from './ui/toolbar';
@@ -42,7 +26,6 @@ declare global {
   interface Window {
     extensionRenderer: ExtensionRenderer;
     docxExporter: DocxExporter;
-    sanitizeRenderedHtml: typeof sanitizeRenderedHtml;
   }
 }
 
@@ -73,15 +56,13 @@ interface LayoutConfigs {
   narrow: LayoutConfig;
 }
 
-async function initializeContentScript(): Promise<void> {
-  // Record page load start time for performance measurement
-  const pageLoadStartTime = performance.now();
-  const translate = (key: string, substitutions?: string | string[]): string => 
+async function initializeMain(): Promise<void> {
+  const translate = (key: string, substitutions?: string | string[]): string =>
     Localization.translate(key, substitutions);
 
   // Initialize cache manager with platform
   const cacheManager = new BackgroundCacheManagerProxy(platform);
-  
+
   // Initialize renderer with background cache proxy
   const renderer = new ExtensionRenderer(cacheManager);
 
@@ -105,18 +86,17 @@ async function initializeContentScript(): Promise<void> {
         width: result.width,
         height: result.height,
         format,
-        error: result.error
+        error: result.error,
       };
-    }
+    },
   };
 
   // Initialize DOCX exporter
   const docxExporter = new DocxExporter(pluginRenderer);
 
-  // Store renderer and utility functions globally for plugins and debugging
+  // Store renderer for plugins and debugging
   window.extensionRenderer = renderer;
   window.docxExporter = docxExporter;
-  window.sanitizeRenderedHtml = sanitizeRenderedHtml;
 
   // Initialize file state manager
   const { saveFileState, getFileState } = createFileStateManager(platform);
@@ -129,10 +109,6 @@ async function initializeContentScript(): Promise<void> {
   const tocManager = createTocManager(saveFileState, getFileState);
   const { generateTOC, setupTocToggle, updateActiveTocItem, setupResponsiveToc } = tocManager;
 
-  // Initialize async task queue
-  const asyncTaskQueueManager = createAsyncTaskQueue(escapeHtml);
-  const { asyncTask, processAsyncTasks } = asyncTaskQueueManager;
-
   // Get the raw markdown content
   const rawMarkdown = document.body.textContent || '';
 
@@ -143,23 +119,23 @@ async function initializeContentScript(): Promise<void> {
   const layoutTitles: LayoutTitles = {
     normal: translate('toolbar_layout_title_normal'),
     fullscreen: translate('toolbar_layout_title_fullscreen'),
-    narrow: translate('toolbar_layout_title_narrow')
+    narrow: translate('toolbar_layout_title_narrow'),
   };
 
   const layoutConfigs: LayoutConfigs = {
     normal: { maxWidth: '1360px', icon: layoutIcons.normal, title: layoutTitles.normal },
     fullscreen: { maxWidth: '100%', icon: layoutIcons.fullscreen, title: layoutTitles.fullscreen },
-    narrow: { maxWidth: '680px', icon: layoutIcons.narrow, title: layoutTitles.narrow }
+    narrow: { maxWidth: '680px', icon: layoutIcons.narrow, title: layoutTitles.narrow },
   };
-  
-  // Determine initial layout and zoom from saved state
+
   type LayoutMode = keyof LayoutConfigs;
-  const initialLayout: LayoutMode = (initialState.layoutMode && layoutConfigs[initialState.layoutMode as LayoutMode]) 
-    ? initialState.layoutMode as LayoutMode
-    : 'normal';
+  const initialLayout: LayoutMode =
+    initialState.layoutMode && layoutConfigs[initialState.layoutMode as LayoutMode]
+      ? (initialState.layoutMode as LayoutMode)
+      : 'normal';
   const initialMaxWidth = layoutConfigs[initialLayout].maxWidth;
   const initialZoom = initialState.zoom || 100;
-  
+
   // Default TOC visibility based on screen width if no saved state
   let initialTocVisible: boolean;
   if (initialState.tocVisible !== undefined) {
@@ -181,166 +157,110 @@ async function initializeContentScript(): Promise<void> {
     docxExporter,
     cancelScrollRestore,
     updateActiveTocItem,
-    toolbarPrintDisabledTitle
+    toolbarPrintDisabledTitle,
   });
 
-  // Set initial zoom level
   toolbarManager.setInitialZoom(initialZoom);
 
-  // Create a new container for the rendered content
+  // UI layout (Chrome-specific)
   document.body.innerHTML = generateToolbarHTML({
     translate,
     escapeHtml,
     initialTocClass,
     initialMaxWidth,
-    initialZoom
+    initialZoom,
   });
 
-  // Set initial body class for TOC state
   if (!initialTocVisible) {
     document.body.classList.add('toc-hidden');
   }
 
   // Wait a bit for DOM to be ready, then start processing
   setTimeout(async () => {
-    // Get saved scroll position
     const savedScrollPosition = await getSavedScrollPosition();
 
-    // Initialize toolbar
     toolbarManager.initializeToolbar();
 
-    // Parse and render markdown
     await renderMarkdown(rawMarkdown, savedScrollPosition);
 
-    // Save to history after successful render
     await saveToHistory(platform);
-
-    // Setup TOC toggle
     setupTocToggle();
-
-    // Setup keyboard shortcuts
     toolbarManager.setupKeyboardShortcuts();
-
-    // Setup responsive behavior
     await setupResponsiveToc();
-
-    // Now that all DOM is ready, process async tasks
-    setTimeout(() => {
-      processAsyncTasks(translate, showProcessingIndicator, hideProcessingIndicator, updateProgress);
-    }, 200);
   }, 100);
 
   // Listen for scroll events and save position to background script
   let scrollTimeout: ReturnType<typeof setTimeout>;
-  try {
-    window.addEventListener('scroll', () => {
-      // Update active TOC item
-      updateActiveTocItem();
-      
-      // Debounce scroll saving to avoid too frequent background messages
-      clearTimeout(scrollTimeout);
-      scrollTimeout = setTimeout(() => {
-        try {
-          const currentPosition = window.scrollY || window.pageYOffset;
-          saveFileState({
-            scrollPosition: currentPosition
-          });
-        } catch (e) {
-          // Ignore errors
-        }
-      }, 300);
-    });
-  } catch (e) {
-    // Scroll event listener setup failed, continuing without scroll persistence
-  }
+  window.addEventListener('scroll', () => {
+    updateActiveTocItem();
+    clearTimeout(scrollTimeout);
+    scrollTimeout = setTimeout(() => {
+      const currentPosition = window.scrollY || window.pageYOffset;
+      saveFileState({ scrollPosition: currentPosition });
+    }, 300);
+  });
 
   async function renderMarkdown(markdown: string, savedScrollPosition = 0): Promise<void> {
-    const contentDiv = document.getElementById('markdown-content');
-
+    const contentDiv = document.getElementById('markdown-content') as HTMLElement | null;
     if (!contentDiv) {
+      // eslint-disable-next-line no-console
       console.error('markdown-content div not found!');
       return;
     }
 
     // Load and apply theme
+    let themeConfig: RendererThemeConfig | null = null;
     try {
       const themeId = await themeManager.loadSelectedTheme();
       const theme = await themeManager.loadTheme(themeId);
       await loadAndApplyTheme(themeId);
-      
-      // Set theme configuration for renderer
+
       if (theme && theme.fontScheme && theme.fontScheme.body) {
         const fontFamily = themeManager.buildFontFamily(theme.fontScheme.body.fontFamily);
         const fontSize = parseFloat(theme.fontScheme.body.fontSize);
-        await renderer.setThemeConfig({
-          fontFamily: fontFamily,
-          fontSize: fontSize
-        });
+        themeConfig = { fontFamily, fontSize };
+        await renderer.setThemeConfig(themeConfig);
       }
     } catch (error) {
+      // eslint-disable-next-line no-console
       console.error('Failed to load theme, using defaults:', error);
     }
 
-    // Pre-process markdown to normalize math blocks and list markers
-    let normalizedMarkdown = normalizeMathBlocks(markdown);
+    // Render markdown using shared orchestration
+    const result = await renderMarkdownDocument({
+      markdown,
+      container: contentDiv,
+      renderer: pluginRenderer,
+      translate,
+      clearContainer: true,
+      processTasks: false,
+    });
 
-    try {
-      // Setup markdown processor with async plugins
-      const processor = unified()
-        .use(remarkParse)
-        .use(remarkGfm)
-        .use(remarkBreaks)
-        .use(remarkMath);
-      
-      // Register all plugins from plugin registry
-      // Cast via unknown to satisfy type checking - unified's complex generics make this necessary
-      registerRemarkPlugins(processor as unknown as Processor, pluginRenderer, asyncTask, translate, escapeHtml, visit);
-      
-      // Continue with rehype processing
-      processor
-        .use(remarkRehype, { allowDangerousHtml: true })
-        .use(rehypeSlug)
-        .use(rehypeHighlight)
-        .use(rehypeKatex)
-        .use(rehypeStringify, { allowDangerousHtml: true });
-
-      const file = await processor.process(normalizedMarkdown);
-      let htmlContent = String(file);
-
-      // Add table centering for better Word compatibility
-      htmlContent = processTablesForWordCompatibility(htmlContent);
-
-      // Sanitize HTML before injecting into the document
-      htmlContent = sanitizeRenderedHtml(htmlContent);
-
-      // Render incrementally to avoid blocking the main thread
-      contentDiv.innerHTML = '';
-      await renderHtmlIncrementally(contentDiv, htmlContent, { batchSize: 200, yieldDelay: 0 });
-
-      // Show the content container
-      const pageDiv = document.getElementById('markdown-page');
-      if (pageDiv) {
-        pageDiv.classList.add('loaded');
-      }
-
-      // Generate table of contents after rendering
-      await generateTOC();
-
-      // Apply initial zoom to ensure scroll margins are correct
-      toolbarManager.applyZoom(toolbarManager.getZoomLevel(), false);
-
-      // Restore scroll position immediately
-      restoreScrollPosition(savedScrollPosition);
-      
-      // Update TOC active state initially
-      setTimeout(updateActiveTocItem, 100);
-
-    } catch (error) {
-      console.error('Markdown processing error:', error);
-      console.error('Error stack:', (error as Error).stack);
-      contentDiv.innerHTML = `<pre style="color: red; background: #fee; padding: 20px;">Error processing markdown: ${(error as Error).message}\n\nStack:\n${(error as Error).stack}</pre>`;
-      restoreScrollPosition(savedScrollPosition);
+    // Show the content container
+    const pageDiv = document.getElementById('markdown-page');
+    if (pageDiv) {
+      pageDiv.classList.add('loaded');
     }
+
+    await generateTOC();
+
+    // Apply initial zoom to ensure scroll margins are correct
+    toolbarManager.applyZoom(toolbarManager.getZoomLevel(), false);
+
+    restoreScrollPosition(savedScrollPosition);
+    setTimeout(updateActiveTocItem, 100);
+
+    // Process async tasks after the initial render (keeps the page responsive)
+    setTimeout(async () => {
+      showProcessingIndicator();
+      try {
+        await result.taskManager.processAll((completed, total) => {
+          updateProgress(completed, total);
+        });
+      } finally {
+        hideProcessingIndicator();
+      }
+    }, 200);
   }
 }
 
@@ -356,38 +276,38 @@ platform.message.addListener((message: unknown) => {
   if (!message || typeof message !== 'object') {
     return;
   }
-  
+
   const msg = message as ContentMessage;
-  
+
   const nextLocale = (locale: string) => {
     Localization.setPreferredLocale(locale)
       .catch((error) => {
-        console.error('Failed to update locale in content script:', error);
+        // eslint-disable-next-line no-console
+        console.error('Failed to update locale in main script:', error);
       })
       .finally(() => {
         window.location.reload();
       });
   };
 
-  // New envelope message
   if (msg.type === 'LOCALE_CHANGED') {
-    const payload = (msg.payload && typeof msg.payload === 'object') ? (msg.payload as Record<string, unknown>) : null;
-    const locale = (payload && typeof payload.locale === 'string' && payload.locale.length > 0) ? payload.locale : DEFAULT_SETTING_LOCALE;
+    const payload = msg.payload && typeof msg.payload === 'object' ? (msg.payload as Record<string, unknown>) : null;
+    const locale = payload && typeof payload.locale === 'string' && payload.locale.length > 0 ? payload.locale : DEFAULT_SETTING_LOCALE;
     nextLocale(locale);
     return;
   }
 
-  // New envelope message
   if (msg.type === 'THEME_CHANGED') {
-    // themeId is currently only used for potential future optimizations.
-    // Keep behavior unchanged: reload to apply new theme.
     window.location.reload();
     return;
   }
 });
 
-Localization.init().catch((error) => {
-  console.error('Localization init failed in content script:', error);
-}).finally(() => {
-  initializeContentScript();
-});
+Localization.init()
+  .catch((error) => {
+    // eslint-disable-next-line no-console
+    console.error('Localization init failed in main script:', error);
+  })
+  .finally(() => {
+    void initializeMain();
+  });

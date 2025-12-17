@@ -14,13 +14,8 @@ import {
   type SpacingScheme,
   type FontConfig
 } from '../../utils/theme-to-css';
-import {
-  processMarkdownToHtml,
-  AsyncTaskManager,
-  extractTitle,
-  extractHeadings
-} from '../../core/markdown-processor';
-import { renderHtmlIncrementally } from '../../core/markdown-processor';
+import { AsyncTaskManager } from '../../core/markdown-processor';
+import { renderMarkdownDocument } from '../../core/viewer/viewer-controller';
 import type { PluginRenderer } from '../../types/index';
 import type { PlatformBridgeAPI } from '../../types/index';
 import type { FontConfigFile } from '../../utils/theme-manager';
@@ -223,27 +218,16 @@ async function handleLoadMarkdown(payload: LoadMarkdownPayload): Promise<void> {
     // Create task manager for async rendering and store reference for potential cancellation
     const taskManager = new AsyncTaskManager((key: string, subs?: string | string[]) => Localization.translate(key, subs));
     currentTaskManager = taskManager;
-    
-    // Process markdown to HTML using shared processor
-    // Use platform.renderer which has all renderers registered
-    const pluginRenderer = createPluginRenderer();
-    const html = await processMarkdownToHtml(content, {
-      renderer: pluginRenderer,
-      taskManager,
-      translate: (key: string, subs?: string | string[]) => Localization.translate(key, subs)
-    });
-    
-    // Check if aborted during HTML processing
-    if (taskManager.isAborted()) {
-      return;
-    }
 
-    // Render to DOM incrementally to avoid blocking the main thread
+    const pluginRenderer = createPluginRenderer();
     const container = document.getElementById('markdown-content');
+
+    let titleForHost = currentFilename;
+
     if (container) {
       // Clear container FIRST, then apply theme (avoids flicker from old content with new style)
-      container.innerHTML = ''; // Clear previous content
-      
+      container.innerHTML = '';
+
       // Now apply theme CSS (container is empty, no flicker)
       // Use captured renderThemeData instead of currentThemeData
       if (renderThemeData) {
@@ -252,7 +236,7 @@ async function handleLoadMarkdown(payload: LoadMarkdownPayload): Promise<void> {
         if (theme && tableStyle && codeTheme && spacing) {
           applyThemeFromData(theme, tableStyle, codeTheme, spacing, fontConfig);
         }
-        
+
         // Also set renderer theme config for diagrams
         if (theme && theme.fontScheme && theme.fontScheme.body) {
           const fontFamily = themeManager.buildFontFamily(theme.fontScheme.body.fontFamily);
@@ -261,7 +245,7 @@ async function handleLoadMarkdown(payload: LoadMarkdownPayload): Promise<void> {
             fontFamily: fontFamily,
             fontSize: fontSize
           });
-          
+
           // Initialize Mermaid with new font
           const mermaidGlobal = (window as { mermaid?: { initialize?: (config: Record<string, unknown>) => void } }).mermaid;
           if (mermaidGlobal && typeof mermaidGlobal.initialize === 'function') {
@@ -286,34 +270,35 @@ async function handleLoadMarkdown(payload: LoadMarkdownPayload): Promise<void> {
       if (currentZoomLevel !== 1) {
         (container as HTMLElement).style.zoom = String(currentZoomLevel);
       }
-      
-      await renderHtmlIncrementally(container as HTMLElement, html, { batchSize: 200, yieldDelay: 0 });
-      
-      // Check if aborted during incremental render
+
+      const renderResult = await renderMarkdownDocument({
+        markdown: content,
+        container: container as HTMLElement,
+        renderer: pluginRenderer,
+        translate: (key: string, subs?: string | string[]) => Localization.translate(key, subs),
+        taskManager,
+        clearContainer: false,
+        processTasks: true,
+        batchSize: 200,
+        yieldDelay: 0,
+        onHeadings: (headings) => {
+          bridge.postMessage('HEADINGS_UPDATED', headings);
+        },
+        onProgress: (completedCount, total) => {
+          if (!taskManager.isAborted()) {
+            bridge.postMessage('RENDER_PROGRESS', { completed: completedCount, total });
+          }
+        },
+        postProcess: async (el) => {
+          await postProcessContent(el);
+        },
+      });
+
       if (taskManager.isAborted()) {
         return;
       }
 
-      // Extract headings from DOM after rendering
-      const headings = extractHeadings(container);
-      bridge.postMessage('HEADINGS_UPDATED', headings);
-
-      // Process async tasks (diagram rendering)
-      const completed = await taskManager.processAll(
-        (completedCount, total) => {
-          if (!taskManager.isAborted()) {
-            bridge.postMessage('RENDER_PROGRESS', { completed: completedCount, total });
-          }
-        }
-      );
-      
-      // Check if aborted during async tasks
-      if (taskManager.isAborted() || !completed) {
-        return;
-      }
-
-      // Post-process: initialize any interactive elements
-      await postProcessContent(container);
+      titleForHost = renderResult.title || currentFilename;
     }
 
     // Clear task manager reference after successful completion
@@ -324,7 +309,7 @@ async function handleLoadMarkdown(payload: LoadMarkdownPayload): Promise<void> {
     // Notify host app that rendering is complete
     bridge.postMessage('RENDER_COMPLETE', {
       filename: currentFilename,
-      title: extractTitle(content) || currentFilename
+      title: titleForHost
     });
 
   } catch (error) {

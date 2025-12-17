@@ -4,6 +4,7 @@ import { build } from 'esbuild';
 import { createBuildConfig } from './build-config.js';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import fs from 'fs';
 
 const execAsync = promisify(exec);
 
@@ -32,6 +33,12 @@ console.log('🔨 Building extension...\n');
 try {
   // Check translations first
   await checkMissingKeys();
+
+  // Clean dist/chrome to avoid stale artifacts.
+  const outdir = 'dist/chrome';
+  if (fs.existsSync(outdir)) {
+    fs.rmSync(outdir, { recursive: true, force: true });
+  }
   
   const config = createBuildConfig();
   const result = await build(config);
