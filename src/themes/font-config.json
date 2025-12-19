@@ -3,7 +3,7 @@
     "Times New Roman": {
       "name": "Times New Roman",
       "displayName": "Times New Roman",
-      "webFallback": "'Times New Roman', Times, Georgia, serif, SimSun, 宋体, STSong",
+      "webFallback": "'Times New Roman', Times, Georgia, serif, SimSun, STSong",
       "docx": {
         "ascii": "Times New Roman",
         "eastAsia": "SimSun"
@@ -12,7 +12,7 @@
     "Arial": {
       "name": "Arial",
       "displayName": "Arial",
-      "webFallback": "Arial, Helvetica, 'Helvetica Neue', sans-serif, SimHei, 黑体, STHeiti",
+      "webFallback": "Arial, Helvetica, 'Helvetica Neue', sans-serif, SimHei, STHeiti",
       "docx": {
         "ascii": "Arial",
         "eastAsia": "SimHei"
@@ -21,7 +21,7 @@
     "Georgia": {
       "name": "Georgia",
       "displayName": "Georgia",
-      "webFallback": "Georgia, 'Times New Roman', Times, serif, SimSun, 宋体, STSong",
+      "webFallback": "Georgia, 'Times New Roman', Times, serif, SimSun, STSong",
       "docx": {
         "ascii": "Georgia",
         "eastAsia": "SimSun"
@@ -39,7 +39,7 @@
     "Courier New": {
       "name": "Courier New",
       "displayName": "Courier New",
-      "webFallback": "'Courier New', Courier, Monaco, FangSong, 仿宋, STFangsong, monospace",
+      "webFallback": "'Courier New', Courier, Monaco, FangSong, STFangsong, monospace",
       "docx": {
         "ascii": "Courier New",
         "eastAsia": "FangSong"
@@ -48,7 +48,7 @@
     "SimSun": {
       "name": "SimSun",
       "displayName": "宋体 (SimSun)",
-      "webFallback": "'Times New Roman', serif, SimSun, 宋体, STSong",
+      "webFallback": "'Times New Roman', serif, SimSun, STSong",
       "docx": {
         "ascii": "Times New Roman",
         "eastAsia": "SimSun"
@@ -57,7 +57,7 @@
     "SimHei": {
       "name": "SimHei",
       "displayName": "黑体 (SimHei)",
-      "webFallback": "Arial, sans-serif, SimHei, 黑体, STHeiti",
+      "webFallback": "Arial, sans-serif, SimHei, STHeiti",
       "docx": {
         "ascii": "Arial",
         "eastAsia": "SimHei"
@@ -66,7 +66,7 @@
     "FangSong": {
       "name": "FangSong",
       "displayName": "仿宋 (FangSong)",
-      "webFallback": "Georgia, 'Times New Roman', serif, FangSong, 仿宋, STFangsong",
+      "webFallback": "Georgia, 'Times New Roman', serif, FangSong, STFangsong",
       "docx": {
         "ascii": "Georgia",
         "eastAsia": "FangSong"
@@ -75,7 +75,7 @@
     "Palatino": {
       "name": "Palatino",
       "displayName": "Palatino",
-      "webFallback": "Palatino, Georgia, 'Times New Roman', serif, STSong, SimSun, 宋体",
+      "webFallback": "Palatino, Georgia, 'Times New Roman', serif, STSong, SimSun",
       "docx": {
         "ascii": "Palatino Linotype",
         "eastAsia": "SimSun"
@@ -84,7 +84,7 @@
     "Verdana": {
       "name": "Verdana",
       "displayName": "Verdana",
-      "webFallback": "Verdana, Geneva, Tahoma, Arial, sans-serif, SimHei, 黑体",
+      "webFallback": "Verdana, Geneva, Tahoma, Arial, sans-serif, SimHei",
       "docx": {
         "ascii": "Verdana",
         "eastAsia": "SimHei"
@@ -93,7 +93,7 @@
     "Tahoma": {
       "name": "Tahoma",
       "displayName": "Tahoma",
-      "webFallback": "Tahoma, Verdana, Arial, sans-serif, SimHei, 黑体",
+      "webFallback": "Tahoma, Verdana, Arial, sans-serif, SimHei",
       "docx": {
         "ascii": "Tahoma",
         "eastAsia": "SimHei"
@@ -102,7 +102,7 @@
     "Trebuchet MS": {
       "name": "Trebuchet MS",
       "displayName": "Trebuchet MS",
-      "webFallback": "'Trebuchet MS', Tahoma, Arial, sans-serif, SimHei, 黑体",
+      "webFallback": "'Trebuchet MS', Tahoma, Arial, sans-serif, SimHei",
       "docx": {
         "ascii": "Trebuchet MS",
         "eastAsia": "SimHei"
@@ -111,7 +111,7 @@
     "Comic Sans MS": {
       "name": "Comic Sans MS",
       "displayName": "Comic Sans MS",
-      "webFallback": "'Comic Sans MS', 'Marker Felt', cursive, SimHei, 黑体",
+      "webFallback": "'Comic Sans MS', 'Marker Felt', cursive, SimHei",
       "docx": {
         "ascii": "Comic Sans MS",
         "eastAsia": "SimHei"
@@ -120,7 +120,7 @@
     "Impact": {
       "name": "Impact",
       "displayName": "Impact",
-      "webFallback": "Impact, 'Arial Black', Arial, sans-serif, SimHei, 黑体",
+      "webFallback": "Impact, 'Arial Black', Arial, sans-serif, SimHei",
       "docx": {
         "ascii": "Impact",
         "eastAsia": "SimHei"
@@ -129,7 +129,7 @@
     "Lucida Grande": {
       "name": "Lucida Grande",
       "displayName": "Lucida Grande",
-      "webFallback": "'Lucida Grande', Geneva, Verdana, Arial, sans-serif, STHeiti, SimHei, 黑体",
+      "webFallback": "'Lucida Grande', Geneva, Verdana, Arial, sans-serif, STHeiti, SimHei",
       "docx": {
         "ascii": "Lucida Sans Unicode",
         "eastAsia": "SimHei"
