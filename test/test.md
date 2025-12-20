@@ -1278,7 +1278,6 @@ flowchart TD
   </tbody>
 </table>
 
-
 ### 10.4 扩展整体架构图
 
 
@@ -1645,6 +1644,18 @@ flowchart TD
   <dt>Markdown in HTML</dt>
   <dd>Does *not* work **very** well. Use HTML <em>tags</em>.</dd>
 </dl>
+
+### 10.5 错误样式
+
+下面应该显示【这是正文】
+<div style="position: relative;">
+   <style scoped>
+      .de-container { width: 100%; border: 2px solid rgba(148, 163, 184, 0.45); }
+   </style>
+   <div class="de-container">
+       这是正文
+   </div>
+</div>
 
 ---
 
