@@ -37,9 +37,6 @@ export class InfographicRenderer extends BaseRenderer {
     // Validate input
     this.validateInput(code);
 
-    // Debug: log the code being rendered
-    console.log('[Infographic] Rendering code:', code.substring(0, 100) + '...');
-
     // Create a temporary container
     const container = this.createContainer();
     

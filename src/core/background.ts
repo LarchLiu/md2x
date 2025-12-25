@@ -815,7 +815,6 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
         if ('maxItems' in globalCacheManager) {
           (globalCacheManager as { maxItems: number }).maxItems = newMaxItems;
         }
-        console.log('[Background] Cache maxItems updated to:', newMaxItems);
       }
     }
   }

@@ -38,9 +38,6 @@ export class DotRenderer extends BaseRenderer {
     // Validate input
     this.validateInput(code);
 
-    // Debug: log the code being rendered
-    console.log('[DOT] Rendering code:', code);
-
     // Render DOT to SVG with transparent background
     const svg = this.viz!.renderSVGElement(code, {
       graphAttributes: {

@@ -598,8 +598,6 @@ export async function switchTheme(themeId: string): Promise<boolean> {
     // Apply theme CSS
     await loadAndApplyTheme(themeId);
     
-    console.log('Theme switched successfully:', themeId);
-    
     return true;
   } catch (error) {
     console.error('Error switching theme:', error);
