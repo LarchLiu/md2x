@@ -153,6 +153,11 @@ export function createToolbarManager(options: ToolbarManagerOptions): ToolbarMan
 
     if (toggleTocBtn && tocDiv && overlayDiv) {
       toggleTocBtn.addEventListener('click', () => {
+        // If TOC has no content (no headings), do nothing
+        if (tocDiv.style.display === 'none') {
+          return;
+        }
+        
         const willBeHidden = !tocDiv.classList.contains('hidden');
         tocDiv.classList.toggle('hidden');
         document.body.classList.toggle('toc-hidden');

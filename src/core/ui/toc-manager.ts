@@ -37,6 +37,7 @@ export function createTocManager(saveFileState: SaveFileStateFunction, getFileSt
 
     if (headings.length === 0) {
       tocDiv.style.display = 'none';
+      document.body.classList.add('toc-hidden');
       return;
     }
 
