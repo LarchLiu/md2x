@@ -1,6 +1,10 @@
 // Shared build configuration for esbuild
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const projectRoot = path.resolve(__dirname, '..');
 
 const copyDirectory = (sourceDir, targetDir) => {
   if (!fs.existsSync(sourceDir)) {

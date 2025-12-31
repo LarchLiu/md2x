@@ -10,11 +10,12 @@ import { fileURLToPath } from 'url';
 
 const execAsync = promisify(exec);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const projectRoot = path.resolve(__dirname, '..');
 
 // Sync version from package.json to manifest.json
 function syncVersion() {
-  const packagePath = path.join(__dirname, '../package.json');
-  const manifestPath = path.join(__dirname, '../chrome/manifest.json');
+  const packagePath = path.join(projectRoot, 'package.json');
+  const manifestPath = path.join(__dirname, 'manifest.json');
   
   const packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
@@ -30,7 +31,7 @@ function syncVersion() {
 async function checkMissingKeys() {
   console.log('🔍 Checking translation keys...\n');
   try {
-    const { stdout, stderr } = await execAsync('node scripts/check-missing-keys.js');
+    const { stdout, stderr } = await execAsync('node scripts/check-missing-keys.js', { cwd: projectRoot });
     console.log(stdout);
     if (stderr) {
       console.error(stderr);
@@ -56,10 +57,13 @@ try {
   await checkMissingKeys();
 
   // Clean dist/chrome to avoid stale artifacts.
-  const outdir = 'dist/chrome';
+  const outdir = path.join(projectRoot, 'dist/chrome');
   if (fs.existsSync(outdir)) {
     fs.rmSync(outdir, { recursive: true, force: true });
   }
+  
+  // Change to project root for esbuild to work correctly
+  process.chdir(projectRoot);
   
   const config = createBuildConfig();
   const result = await build(config);
@@ -82,7 +86,7 @@ try {
     }
     
     // Write metafile for detailed analysis
-    fs.writeFileSync('dist/chrome/metafile.json', JSON.stringify(result.metafile, null, 2));
+    fs.writeFileSync(path.join(outdir, 'metafile.json'), JSON.stringify(result.metafile, null, 2));
     console.log('\n📄 Metafile saved to dist/chrome/metafile.json');
   }
   

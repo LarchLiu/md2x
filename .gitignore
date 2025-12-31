@@ -45,13 +45,13 @@ dist.*
 **/doc/api/
 
 # iOS
-/mobile/ios/Flutter/
+/mobile/ios/Flutter/ephemeral/
 /mobile/ios/Pods/
 /mobile/ios/Podfile.lock
 **/ios/Flutter/.last_build_id
 
 # macOS
-/mobile/macos/Flutter/
+/mobile/macos/Flutter/ephemeral/
 /mobile/macos/Pods/
 /mobile/macos/Podfile.lock
 

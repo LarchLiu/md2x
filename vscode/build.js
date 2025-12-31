@@ -151,7 +151,7 @@ function copyAssets() {
   const outdir = 'dist/vscode';
 
   // Create package.json for VS Code extension
-  const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+  const packageJson = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8'));
   
   // Extract VS Code specific fields
   const vscodePackage = {
@@ -261,6 +261,9 @@ tsconfig.json
  */
 async function main() {
   console.log('🔨 Building VS Code extension...\n');
+
+  // Change to project root for esbuild to work correctly
+  process.chdir(projectRoot);
 
   try {
     // Clean output directory

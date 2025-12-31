@@ -6,14 +6,15 @@
   "type": "module",
   "main": "src/content.js",
   "scripts": {
-    "build:chrome": "node scripts/build.js",
-    "build:mobile": "node scripts/build-mobile.js",
-    "build:vscode": "node scripts/build-vscode.js",
+    "build:chrome": "node chrome/build.js",
+    "build:mobile": "node mobile/build.js",
+    "build:vscode": "node vscode/build.js",
     "app:init": "cd mobile && flutter pub get",
-    "app:ios": "cd mobile && flutter build ipa --export-options-plist=ios/exportOptions.plist && cd .. && mkdir -p dist/ios && cp -a mobile/build/ios/ipa/* dist/ios/",
-    "app:ios:sim": "cd mobile && flutter build ios --simulator && cd .. && mkdir -p dist/ios-sim && cp -a mobile/build/ios/iphonesimulator/Runner.app dist/ios-sim/",
-    "app:android": "cd mobile && flutter build apk && cd .. && mkdir -p dist/android && cp mobile/build/app/outputs/flutter-apk/*.apk dist/android/",
-    "app:macos": "cd mobile && flutter build macos && cd .. && mkdir -p dist/macos && rm -rf dist/macos/markdown_viewer_mobile.app && cp -a 'mobile/build/macos/Build/Products/Release/markdown_viewer_mobile.app' dist/macos/",
+    "app:ios": "node mobile/build-app.js ios",
+    "app:ios:sim": "node mobile/build-app.js ios:sim",
+    "app:android": "node mobile/build-app.js android",
+    "app:macos": "node mobile/build-app.js macos",
+    "app:all": "node mobile/build-app.js all",
     "typecheck": "npx tsc --noEmit"
   },
   "keywords": [

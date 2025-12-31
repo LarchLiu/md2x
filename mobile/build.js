@@ -8,6 +8,7 @@ import { build } from 'esbuild';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const projectRoot = path.resolve(__dirname, '..');
 
 const DIST_DIR = 'mobile/build/mobile';
 const SRC_DIR = 'src';
@@ -16,8 +17,8 @@ const SRC_DIR = 'src';
  * Sync version from package.json to pubspec.yaml
  */
 function syncVersion() {
-  const packagePath = path.join(__dirname, '../package.json');
-  const pubspecPath = path.join(__dirname, '../mobile/pubspec.yaml');
+  const packagePath = path.join(projectRoot, 'package.json');
+  const pubspecPath = path.join(__dirname, 'pubspec.yaml');
   
   const packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
   let pubspec = fs.readFileSync(pubspecPath, 'utf8');
@@ -153,7 +154,7 @@ async function buildStyles() {
   console.log('🎨 Building styles (all-in-one)...');
 
   // Create a combined CSS entry point in project root (where paths resolve correctly)
-  const combinedCssPath = '_combined_mobile.css';
+  const combinedCssPath = path.join(projectRoot, '_combined_mobile.css');
   const cssImports = [
     '@import "./src/ui/styles.css";',
     '@import "./node_modules/katex/dist/katex.min.css";',
@@ -239,6 +240,9 @@ function copyResources() {
  */
 async function main() {
   console.log('🚀 Building mobile WebView resources...\n');
+
+  // Change to project root for esbuild to work correctly
+  process.chdir(projectRoot);
 
   // Sync version first
   syncVersion();
