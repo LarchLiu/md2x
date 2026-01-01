@@ -223,7 +223,7 @@ async function clearFileState(url: string): Promise<boolean> {
 
 async function handleScrollOperationAsync(
   message: { id: string; type: string; payload: unknown }
-): Promise<{ id: string; ok: boolean; data?: unknown; errorMessage?: string }> {
+): Promise<{ type: 'RESPONSE'; requestId: string; ok: boolean; data?: unknown; error?: { message: string } }> {
   try {
     const payload = (message.payload || {}) as Record<string, unknown>;
     const operation = payload.operation as string | undefined;
