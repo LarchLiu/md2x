@@ -105,10 +105,10 @@ if (document.readyState === 'loading') {
 }
 
 // Envelope helpers
-let legacyRequestCounter = 0;
+let requestCounter = 0;
 function createRequestId(): string {
-  legacyRequestCounter += 1;
-  return `${Date.now()}-${legacyRequestCounter}`;
+  requestCounter += 1;
+  return `${Date.now()}-${requestCounter}`;
 }
 
 function isRequestEnvelope(message: unknown): message is { id: string; type: string; payload: unknown } {

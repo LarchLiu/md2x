@@ -481,26 +481,26 @@ export class MarkdownPreviewPanel {
           if (payload) {
             const { key, value } = payload as { key: string; value: unknown };
 
-            // Persist under markdownViewerSettings to match the unified storage contract
-            // (used by Localization.init() and other shared modules).
             const globalState = MarkdownPreviewPanel._globalState;
             if (globalState) {
-              const existing = (globalState.get<Record<string, unknown>>('storage.markdownViewerSettings') ?? {});
-              const next = { ...existing };
-
-              if (key === 'locale') {
-                next.preferredLocale = value;
-              } else if (key === 'preferredLocale') {
-                next.preferredLocale = value;
-              } else if (key === 'theme') {
-                next.theme = value;
-              } else if (key === 'docxHrAsPageBreak') {
-                next.docxHrAsPageBreak = value;
+              // Theme is stored separately (used by theme-manager.ts and settings-tab.ts)
+              if (key === 'theme' || key === 'selectedTheme') {
+                await globalState.update('storage.selectedTheme', value);
               } else {
-                (next as Record<string, unknown>)[key] = value;
-              }
+                // Other settings go into markdownViewerSettings container
+                const existing = (globalState.get<Record<string, unknown>>('storage.markdownViewerSettings') ?? {});
+                const next = { ...existing };
 
-              await globalState.update('storage.markdownViewerSettings', next);
+                if (key === 'locale' || key === 'preferredLocale') {
+                  next.preferredLocale = value;
+                } else if (key === 'docxHrAsPageBreak') {
+                  next.docxHrAsPageBreak = value;
+                } else {
+                  (next as Record<string, unknown>)[key] = value;
+                }
+
+                await globalState.update('storage.markdownViewerSettings', next);
+              }
             } else {
               // Fallback for unexpected initialization issues
               await this._handleStorageSet({ items: { [key]: value } });
@@ -544,34 +544,9 @@ export class MarkdownPreviewPanel {
     
     for (const key of keys) {
       if (key === 'markdownViewerSettings') {
-        // Unified settings container used across platforms.
-        // Also migrate legacy VSCode-only keys (storage.locale/theme/...) if present.
+        // Unified settings container used across platforms
         const stored = globalState?.get<Record<string, unknown>>('storage.markdownViewerSettings');
-        if (stored && typeof stored === 'object') {
-          result[key] = stored;
-        } else {
-          const migrated: Record<string, unknown> = {};
-          const legacyLocale = globalState?.get<unknown>('storage.locale');
-          const legacyTheme = globalState?.get<unknown>('storage.theme');
-          const legacyDocx = globalState?.get<unknown>('storage.docxHrAsPageBreak');
-
-          if (typeof legacyLocale === 'string' && legacyLocale) {
-            migrated.preferredLocale = legacyLocale;
-          }
-          if (typeof legacyTheme === 'string' && legacyTheme) {
-            migrated.theme = legacyTheme;
-          }
-          if (typeof legacyDocx === 'boolean') {
-            migrated.docxHrAsPageBreak = legacyDocx;
-          }
-
-          result[key] = migrated;
-
-          // Best-effort: persist migrated container so next init reads correctly.
-          if (globalState && Object.keys(migrated).length > 0) {
-            await globalState.update('storage.markdownViewerSettings', migrated);
-          }
-        }
+        result[key] = (stored && typeof stored === 'object') ? stored : {};
       } else {
         result[key] = globalState?.get(`storage.${key}`);
       }
@@ -902,11 +877,12 @@ export class MarkdownPreviewPanel {
     const globalState = MarkdownPreviewPanel._globalState;
     const config = vscode.workspace.getConfiguration('markdownViewer');
     
-    // Get theme/locale from unified settings container first
+    // Get settings from persistent storage
     const settings = globalState?.get<Record<string, unknown>>('storage.markdownViewerSettings') ?? {};
-    const theme = (typeof settings.theme === 'string' && settings.theme) ? settings.theme : (globalState?.get<string>('storage.theme') || config.get('theme') || 'default');
-    const locale = (typeof settings.preferredLocale === 'string' && settings.preferredLocale) ? settings.preferredLocale : (globalState?.get<string>('storage.locale') || 'auto');
-    const docxHrAsPageBreak = (typeof settings.docxHrAsPageBreak === 'boolean') ? settings.docxHrAsPageBreak : (globalState?.get<boolean>('storage.docxHrAsPageBreak') ?? true);
+    // Theme is stored separately at storage.selectedTheme (used by theme-manager.ts and settings-tab.ts)
+    const theme = globalState?.get<string>('storage.selectedTheme') || 'default';
+    const locale = (typeof settings.preferredLocale === 'string' && settings.preferredLocale) ? settings.preferredLocale : 'auto';
+    const docxHrAsPageBreak = (typeof settings.docxHrAsPageBreak === 'boolean') ? settings.docxHrAsPageBreak : true;
     
     return {
       theme,

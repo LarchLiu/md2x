@@ -27,12 +27,6 @@ function getCurrentLocale(context: vscode.ExtensionContext): string {
     return preferredLocale;
   }
 
-  // Legacy fallback (older builds stored locale directly)
-  const legacyLocale = context.globalState.get<unknown>('storage.locale');
-  if (typeof legacyLocale === 'string' && legacyLocale && legacyLocale !== 'auto') {
-    return legacyLocale;
-  }
-
   return vscode.env.language || 'en';
 }
 

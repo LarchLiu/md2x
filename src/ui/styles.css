@@ -499,16 +499,6 @@ body.toc-hidden #markdown-wrapper {
   transition: stroke-dashoffset 0.3s ease;
 }
 
-/* Legacy spinner support (if needed) */
-.processing-spinner-small {
-  width: 16px;
-  height: 16px;
-  border: 2px solid #e0e0e0;
-  border-top: 2px solid #2563eb;
-  border-radius: 50%;
-  animation: async-spin 1s linear infinite;
-}
-
 /* Async content placeholder */
 .async-placeholder {
   display: flex;

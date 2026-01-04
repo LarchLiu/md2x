@@ -110,15 +110,16 @@ async function initialize(): Promise<void> {
     // Initialize localization (shared with Chrome/Mobile)
     await Localization.init();
 
-    // Initialize toolbar and settings panel
+    // Load saved theme using shared themeManager (same as Chrome)
+    // This reads 'selectedTheme' from platform.storage
+    // Must be done BEFORE initializeUI() so settingsPanel gets the correct initial theme
+    currentThemeId = await themeManager.loadSelectedTheme();
+
+    // Initialize toolbar and settings panel (after theme is loaded)
     initializeUI();
 
     // Render iframe is lazily created on first render request
     // No pre-initialization needed - ensureReady() is called in render()
-
-    // Load saved theme using shared themeManager (same as Chrome)
-    // This reads 'selectedTheme' from platform.storage
-    currentThemeId = await themeManager.loadSelectedTheme();
 
     // Try to load and apply initial theme, and set up currentThemeData for renderer
     try {

@@ -77,6 +77,6 @@ const renderChannel = new RenderChannel(new ChromeRuntimeTransport({ willRespond
 
 const worker = bootstrapRenderWorker(renderChannel, {
   getCanvas: () => document.getElementById('png-canvas') as HTMLCanvasElement | null,
-  // Keep legacy behavior: offscreen answers PING as ready.
+  // Offscreen document is always ready once loaded
   getReady: () => true,
 });
