@@ -12,11 +12,11 @@
     },
     "headings": {},
     "code": {
-      "fontFamily": "Consolas",
-      "background": "#faf8f5"
+      "fontFamily": "Consolas"
     }
   },
   "layoutScheme": "academic",
-  "tableStyle": "academic",
+  "colorScheme": "sepia",
+  "tableStyle": "borderless",
   "codeTheme": "warm-book"
 }

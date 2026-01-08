@@ -17,17 +17,8 @@ import type { EmojiStyle } from '../../../src/types/docx.js';
 import Localization from '../../../src/utils/localization';
 import themeManager from '../../../src/utils/theme-manager';
 import DocxExporter from '../../../src/exporters/docx-exporter';
-import {
-  loadAndApplyTheme,
-  applyThemeFromData,
-  type ThemeConfig,
-  type TableStyleConfig,
-  type CodeThemeConfig,
-  type LayoutScheme,
-  type FontConfig
-} from '../../../src/utils/theme-to-css';
-import type { PluginRenderer, PlatformAPI } from '../../../src/types/index';
-import type { FontConfigFile } from '../../../src/utils/theme-manager';
+import { loadAndApplyTheme } from '../../../src/utils/theme-to-css';
+import type { PluginRenderer } from '../../../src/types/index';
 
 // VSCode-specific UI components
 import { createSettingsPanel, type SettingsPanel, type ThemeOption, type LocaleOption } from './settings-panel';
@@ -38,8 +29,8 @@ declare global {
   var VSCODE_CONFIG: Record<string, unknown>;
 }
 
-// Make platform globally available (same as Chrome/Mobile)
-globalThis.platform = platform as unknown as PlatformAPI;
+// Make platform globally available (required by loadAndApplyTheme)
+globalThis.platform = platform;
 
 // ============================================================================
 // Global State (same pattern as Mobile)
@@ -55,19 +46,6 @@ let currentDocumentBaseUri = '';  // Base URI for resolving relative paths (imag
 
 // UI components
 let settingsPanel: SettingsPanel | null = null;
-
-/**
- * Theme data structure (same as Mobile)
- */
-interface ThemeData {
-  fontConfig?: FontConfig;
-  theme?: ThemeConfig & { id?: string };
-  layoutScheme?: LayoutScheme;
-  tableStyle?: TableStyleConfig;
-  codeTheme?: CodeThemeConfig;
-}
-
-let currentThemeData: ThemeData | null = null;
 
 // ============================================================================
 // Plugin Renderer (shared pattern)
@@ -122,22 +100,9 @@ async function initialize(): Promise<void> {
     // Render iframe is lazily created on first render request
     // No pre-initialization needed - ensureReady() is called in render()
 
-    // Try to load and apply initial theme, and set up currentThemeData for renderer
+    // Load and apply initial theme (all theme logic is in loadAndApplyTheme)
     try {
-      const { theme, layoutScheme } = await loadAndApplyTheme(currentThemeId);
-      
-      // Store theme data for renderer (same pattern as Chrome)
-      if (theme && layoutScheme) {
-        currentThemeData = { theme, layoutScheme };
-        
-        // Set renderer theme config for diagrams
-        if (theme.fontScheme?.body && layoutScheme.body) {
-          const fontFamily = themeManager.buildFontFamily(theme.fontScheme.body.fontFamily);
-          const fontSize = parseFloat(layoutScheme.body.fontSize || '16');
-          console.log('[VSCode Webview] Initial theme config:', { fontFamily, fontSize });
-          platform.renderer.setThemeConfig({ fontFamily, fontSize });
-        }
-      }
+      await loadAndApplyTheme(currentThemeId);
     } catch (error) {
       console.warn('[VSCode Webview] Failed to load theme, using defaults:', error);
     }
@@ -166,14 +131,12 @@ interface ExtensionMessage {
 interface UpdateContentPayload {
   content: string;
   filename?: string;
-  themeDataJson?: string;
   documentBaseUri?: string;
   forceRender?: boolean;
 }
 
 interface SetThemePayload {
   themeId: string;
-  themeData?: ThemeData;
 }
 
 interface SetZoomPayload {
@@ -223,7 +186,7 @@ function handleExtensionMessage(message: ExtensionMessage): void {
 // ============================================================================
 
 async function handleUpdateContent(payload: UpdateContentPayload): Promise<void> {
-  const { content, filename, themeDataJson, documentBaseUri, forceRender } = payload;
+  const { content, filename, documentBaseUri, forceRender } = payload;
   const container = document.getElementById('markdown-content');
   
   if (!container) {
@@ -258,24 +221,6 @@ async function handleUpdateContent(payload: UpdateContentPayload): Promise<void>
   currentFilename = newFilename;
 
   try {
-    // If theme data is provided with content, apply it (same as Mobile)
-    if (themeDataJson) {
-      try {
-        const data = JSON.parse(themeDataJson) as ThemeData;
-        currentThemeData = data;
-        
-        // Initialize themeManager with font config
-        if (data.fontConfig && typeof data.fontConfig === 'object' && 'fonts' in data.fontConfig) {
-          themeManager.initializeWithData(data.fontConfig as unknown as FontConfigFile);
-        }
-      } catch (e) {
-        console.error('[VSCode Webview] Failed to parse theme data:', e);
-      }
-    }
-
-    // Capture theme data at render time (same pattern as Mobile)
-    const renderThemeData = currentThemeData;
-
     // Create task manager
     const taskManager = new AsyncTaskManager(
       (key: string, subs?: string | string[]) => Localization.translate(key, subs)
@@ -300,24 +245,6 @@ async function handleUpdateContent(payload: UpdateContentPayload): Promise<void>
       // File switch: need to reset to avoid old targetLine interfering with new document
       if (isRealFileSwitch && fileChanged) {
         scrollSyncController?.resetTargetLine();
-      }
-    }
-
-    // Apply theme CSS if we have theme data
-    if (renderThemeData) {
-      const { fontConfig, theme, layoutScheme, tableStyle, codeTheme } = renderThemeData;
-
-      if (theme && layoutScheme && tableStyle && codeTheme) {
-        applyThemeFromData(theme, layoutScheme, tableStyle, codeTheme);
-      }
-
-      // Set renderer theme config for diagrams
-      if (layoutScheme?.body) {
-        const fontFamily = fontConfig 
-          ? themeManager.buildFontFamily(theme?.fontScheme?.body?.fontFamily || 'system-ui')
-          : 'system-ui';
-        const fontSize = parseFloat(layoutScheme.body.fontSize || '16');
-        platform.renderer.setThemeConfig({ fontFamily, fontSize });
       }
     }
 
@@ -384,31 +311,15 @@ async function handleUpdateContent(payload: UpdateContentPayload): Promise<void>
 // ============================================================================
 
 async function handleSetTheme(payload: SetThemePayload): Promise<void> {
-  const { themeId, themeData } = payload;
+  const { themeId } = payload;
 
   try {
     currentThemeId = themeId;
 
-    if (themeData) {
-      // Use provided theme data (same as Mobile applyThemeData)
-      currentThemeData = themeData;
-      console.log('[VSCode Webview] Using provided themeData:', themeData);
+    // Load and apply theme (all logic in shared loadAndApplyTheme)
+    await loadAndApplyTheme(themeId);
 
-      if (themeData.fontConfig && typeof themeData.fontConfig === 'object' && 'fonts' in themeData.fontConfig) {
-        themeManager.initializeWithData(themeData.fontConfig as unknown as FontConfigFile);
-      }
-    } else {
-      // Load theme from resources (same as Chrome)
-      console.log('[VSCode Webview] Loading theme from resources:', themeId);
-      const { theme, layoutScheme } = await loadAndApplyTheme(themeId);
-      
-      if (theme && layoutScheme) {
-        currentThemeData = { theme, layoutScheme };
-        console.log('[VSCode Webview] Loaded theme data:', theme);
-      }
-    }
-
-    // Save selected theme using shared themeManager (same as Chrome)
+    // Save selected theme
     await themeManager.saveSelectedTheme(themeId);
 
     vscodeBridge.postMessage('THEME_CHANGED', { themeId });
@@ -479,16 +390,17 @@ function handleSetZoom(payload: SetZoomPayload): void {
 
 declare global {
   interface Window {
-    loadMarkdown: (content: string, filename?: string, themeDataJson?: string, scrollLine?: number) => void;
+    loadMarkdown: (content: string, filename?: string, themeId?: string, scrollLine?: number) => void;
     setTheme: (themeId: string) => void;
     setZoom: (zoom: number) => void;
     exportDocx: () => void;
   }
 }
 
-window.loadMarkdown = (content: string, filename?: string, themeDataJson?: string, _scrollLine?: number) => {
-  // scrollLine is ignored in VSCode - scroll sync is handled via SCROLL_TO_LINE messages
-  handleUpdateContent({ content, filename, themeDataJson });
+window.loadMarkdown = (content: string, filename?: string, _themeId?: string, _scrollLine?: number) => {
+  // themeId and scrollLine are ignored in VSCode - theme is managed separately
+  // and scroll sync is handled via SCROLL_TO_LINE messages
+  handleUpdateContent({ content, filename });
 };
 
 window.setTheme = (themeId: string) => {

@@ -82,4 +82,5 @@ flutter:
     - build/mobile/themes/presets/
     - build/mobile/themes/code-themes/
     - build/mobile/themes/layout-schemes/
+    - build/mobile/themes/color-schemes/
     - build/mobile/themes/table-styles/

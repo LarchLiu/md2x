@@ -55,6 +55,7 @@ export type {
 // =============================================================================
 
 export type {
+  ColorScheme,
   HeadingConfig,
   FontScheme,
   BorderConfig,

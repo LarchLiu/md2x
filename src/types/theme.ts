@@ -4,6 +4,59 @@
  */
 
 // =============================================================================
+// Color Scheme Types
+// =============================================================================
+
+/**
+ * Color scheme configuration
+ * Manages all color-related settings for a theme
+ */
+export interface ColorScheme {
+  id: string;
+  name: string;
+  name_en: string;
+  description: string;
+  description_en?: string;
+  
+  text: {
+    primary: string;    // Main text color
+    secondary: string;  // Secondary text (captions, etc.)
+    muted: string;      // Muted text (footnotes, etc.)
+  };
+  
+  accent: {
+    link: string;       // Link color
+    linkHover: string;  // Link hover color
+  };
+  
+  background: {
+    code: string;       // Code block background
+  };
+  
+  blockquote: {
+    border: string;     // Blockquote left border color
+  };
+  
+  table: {
+    border: string;           // Table and cell border color
+    headerBackground: string; // Table header background
+    headerText: string;       // Table header text color
+    zebraEven: string;        // Even row background (zebra stripes)
+    zebraOdd: string;         // Odd row background (zebra stripes)
+  };
+  
+  /** Optional per-heading colors for colorful themes like rainbow */
+  headings?: {
+    h1?: string;
+    h2?: string;
+    h3?: string;
+    h4?: string;
+    h5?: string;
+    h6?: string;
+  };
+}
+
+// =============================================================================
 // Font Configuration Types
 // =============================================================================
 
@@ -19,16 +72,37 @@ export interface HeadingConfig {
 /**
  * Font scheme configuration (font-related properties only)
  * Layout properties (fontSize, lineHeight, spacing) are in LayoutScheme
+ * Color properties are in ColorScheme
  */
 export interface FontScheme {
   body: {
     fontFamily: string;
   };
-  headings: Record<string, HeadingConfig>;
+  headings: HeadingsConfig;
   code: {
     fontFamily: string;
-    background: string;
   };
+}
+
+/**
+ * Headings font configuration
+ * Top-level fontFamily/fontWeight apply to all headings (h1-h6)
+ * Individual h1-h6 configs can override the defaults
+ */
+export interface HeadingsConfig {
+  /** Default font family for all headings (h1-h6) */
+  fontFamily?: string;
+  /** Default font weight for all headings (h1-h6) */
+  fontWeight?: string;
+  /** Individual heading overrides */
+  h1?: HeadingConfig;
+  h2?: HeadingConfig;
+  h3?: HeadingConfig;
+  h4?: HeadingConfig;
+  h5?: HeadingConfig;
+  h6?: HeadingConfig;
+  /** Allow dynamic access by level name */
+  [key: string]: HeadingConfig | string | undefined;
 }
 
 // =============================================================================
@@ -36,16 +110,17 @@ export interface FontScheme {
 // =============================================================================
 
 /**
- * Border configuration
+ * Border configuration (layout properties only)
+ * Color is from ColorScheme
  */
 export interface BorderConfig {
   style: string;
   width: string;
-  color: string;
 }
 
 /**
- * Table style configuration
+ * Table style configuration (layout properties only)
+ * Color properties are in ColorScheme
  */
 export interface TableStyleConfig {
   border?: {
@@ -56,7 +131,6 @@ export interface TableStyleConfig {
     lastRowBottom?: BorderConfig;
   };
   header: {
-    background?: string;
     fontWeight?: string;
   };
   cell: {
@@ -64,8 +138,6 @@ export interface TableStyleConfig {
   };
   zebra?: {
     enabled: boolean;
-    evenBackground: string;
-    oddBackground: string;
   };
 }
 
@@ -160,9 +232,10 @@ export interface Theme {
   author?: string;
   version?: string;
   fontScheme: FontScheme;
-  layoutScheme: string;  // Reference to layout scheme
-  tableStyle: string;    // Reference to table style
-  codeTheme: string;     // Reference to code theme
+  layoutScheme: string;   // Reference to layout scheme
+  colorScheme: string;    // Reference to color scheme
+  tableStyle: string;     // Reference to table style
+  codeTheme: string;      // Reference to code theme
 }
 
 /**

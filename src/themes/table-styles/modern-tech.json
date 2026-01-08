@@ -4,33 +4,26 @@
   "name_en": "Modern Tech",
   "description": "蓝色主题 + 圆角边框，适合技术文档和产品说明",
   "description_en": "Blue theme with rounded borders, ideal for tech docs and product guides",
-  
   "border": {
     "headerTop": {
-      "color": "#2196F3",
       "width": "2pt",
       "style": "single"
     },
     "headerBottom": {
-      "color": "#2196F3",
       "width": "2pt",
       "style": "single"
     },
     "rowBottom": {
-      "color": "#E3F2FD",
       "width": "1pt",
       "style": "single"
     },
     "lastRowBottom": {
-      "color": "#2196F3",
       "width": "2pt",
       "style": "single"
     }
   },
   "header": {
-    "background": "#E3F2FD",
-    "fontWeight": "bold",
-    "color": "#1565C0"
+    "fontWeight": "bold"
   },
   "cell": {
     "padding": "10pt"

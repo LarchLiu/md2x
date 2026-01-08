@@ -1,9 +1,9 @@
 {
   "id": "elegant",
-  "name": "文学杂志",
-  "name_en": "Magazine",
-  "description": "Georgia 字体，优雅的文学杂志风格",
-  "description_en": "Georgia font with elegant magazine style",
+  "name": "优雅文艺",
+  "name_en": "Elegant Literary",
+  "description": "Georgia 字体，优雅的文学风格",
+  "description_en": "Georgia font with elegant literary style",
   "author": "Markdown Viewer Extension",
   "version": "1.0.0",
   "fontScheme": {
@@ -12,11 +12,11 @@
     },
     "headings": {},
     "code": {
-      "fontFamily": "Monaco",
-      "background": "#fafafa"
+      "fontFamily": "Monaco"
     }
   },
   "layoutScheme": "book",
+  "colorScheme": "sakura",
   "tableStyle": "borderless",
-  "codeTheme": "warm-book"
+  "codeTheme": "colorful"
 }

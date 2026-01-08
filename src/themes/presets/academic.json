@@ -11,31 +11,14 @@
       "fontFamily": "SimSun"
     },
     "headings": {
-      "h1": {
-        "fontFamily": "SimHei"
-      },
-      "h2": {
-        "fontFamily": "SimHei"
-      },
-      "h3": {
-        "fontFamily": "SimHei"
-      },
-      "h4": {
-        "fontFamily": "SimHei"
-      },
-      "h5": {
-        "fontFamily": "SimHei"
-      },
-      "h6": {
-        "fontFamily": "SimHei"
-      }
+      "fontFamily": "SimHei"
     },
     "code": {
-      "fontFamily": "Monaco",
-      "background": "#f6f8fa"
+      "fontFamily": "Monaco"
     }
   },
   "layoutScheme": "academic",
+  "colorScheme": "neutral",
   "tableStyle": "academic",
   "codeTheme": "light-clean"
 }

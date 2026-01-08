@@ -4,15 +4,12 @@
   "name_en": "Borderless",
   "description": "仅表头有下边框",
   "description_en": "Only header has bottom border",
-  
   "border": {
     "headerBottom": {
-      "color": "#000000",
       "width": "2pt",
       "style": "single"
     },
     "lastRowBottom": {
-      "color": "#000000",
       "width": "1pt",
       "style": "single"
     }

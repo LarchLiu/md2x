@@ -4,24 +4,19 @@
   "name_en": "Grid Style",
   "description": "完整边框，表头浅灰背景，斑马纹",
   "description_en": "Full borders, light gray header, zebra stripes",
-  
   "border": {
     "all": {
-      "color": "#dfe2e5",
       "width": "1pt",
       "style": "single"
     }
   },
   "header": {
-    "background": "#e8eaed",
     "fontWeight": "bold"
   },
   "cell": {
     "padding": "8pt"
   },
   "zebra": {
-    "enabled": true,
-    "evenBackground": "#f6f8fa",
-    "oddBackground": "#ffffff"
+    "enabled": true
   }
 }

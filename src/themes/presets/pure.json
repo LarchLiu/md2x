@@ -1,0 +1,22 @@
+{
+  "id": "pure",
+  "name": "纯净简约",
+  "name_en": "Pure Clean",
+  "description": "清新现代感，大量留白，专注内容",
+  "description_en": "Fresh modern feel with whitespace, focus on content",
+  "author": "Theme System",
+  "version": "1.0.0",
+  "fontScheme": {
+    "body": {
+      "fontFamily": "Arial"
+    },
+    "headings": {},
+    "code": {
+      "fontFamily": "Consolas"
+    }
+  },
+  "layoutScheme": "document",
+  "colorScheme": "neutral",
+  "tableStyle": "borderless",
+  "codeTheme": "light-clean"
+}

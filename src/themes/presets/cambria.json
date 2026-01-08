@@ -1,7 +1,7 @@
 {
   "id": "cambria",
-  "name": "现代文档",
-  "name_en": "Modern Document",
+  "name": "Palatino 现代",
+  "name_en": "Palatino Modern",
   "description": "Palatino 字体，现代化的屏幕阅读体验",
   "description_en": "Palatino font with modern screen reading experience",
   "author": "Markdown Viewer Extension",
@@ -12,11 +12,11 @@
     },
     "headings": {},
     "code": {
-      "fontFamily": "Monaco",
-      "background": "#f6f8fa"
+      "fontFamily": "Monaco"
     }
   },
-  "layoutScheme": "document",
+  "layoutScheme": "book",
+  "colorScheme": "neutral",
   "tableStyle": "grid",
-  "codeTheme": "cool-modern"
+  "codeTheme": "light-clean"
 }

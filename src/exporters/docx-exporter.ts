@@ -165,6 +165,7 @@ class DocxExporter {
       linkDefinitions: this.linkDefinitions,
       renderer: rendererAdapter,
       emojiStyle: this.docxEmojiStyle,
+      linkColor: this.themeStyles.linkColor,
     });
 
     // Create other converters

@@ -18,6 +18,7 @@ import type {
   DOCXCodeColors,
   BorderStyleValue,
 } from '../types/docx';
+import type { ColorScheme } from '../types/index';
 
 // Re-export DOCXThemeStyles for backward compatibility
 export type { DOCXThemeStyles };
@@ -37,6 +38,7 @@ interface HeadingConfig {
 /**
  * Font scheme configuration (font-related properties only)
  * Layout properties (fontSize, lineHeight, spacing) are in LayoutScheme
+ * Color properties are in ColorScheme
  */
 interface FontScheme {
   body: {
@@ -45,7 +47,6 @@ interface FontScheme {
   headings: Record<string, HeadingConfig>;
   code: {
     fontFamily: string;
-    background: string;
   };
 }
 
@@ -119,16 +120,15 @@ interface LayoutScheme {
 }
 
 /**
- * Border configuration (from table style JSON)
+ * Border configuration (layout properties only, color from ColorScheme)
  */
 interface BorderConfig {
   style: string;
   width: string;
-  color: string;
 }
 
 /**
- * Table style configuration (from table style JSON)
+ * Table style configuration (layout properties only, colors from ColorScheme)
  */
 interface TableStyleConfig {
   border?: {
@@ -139,7 +139,6 @@ interface TableStyleConfig {
     lastRowBottom?: BorderConfig;
   };
   header: {
-    background?: string;
     fontWeight?: string;
   };
   cell: {
@@ -147,8 +146,6 @@ interface TableStyleConfig {
   };
   zebra?: {
     enabled: boolean;
-    evenBackground: string;
-    oddBackground: string;
   };
 }
 
@@ -168,6 +165,7 @@ interface CodeThemeConfig {
  * Convert theme configuration to DOCX styles object
  * @param theme - Theme configuration object
  * @param layoutScheme - Layout scheme configuration
+ * @param colorScheme - Color scheme configuration
  * @param tableStyle - Table style configuration
  * @param codeTheme - Code highlighting theme
  * @returns DOCX styles configuration
@@ -175,16 +173,18 @@ interface CodeThemeConfig {
 export function themeToDOCXStyles(
   theme: ThemeConfig,
   layoutScheme: LayoutScheme,
+  colorScheme: ColorScheme,
   tableStyle: TableStyleConfig,
   codeTheme: CodeThemeConfig
 ): DOCXThemeStyles {
-  const codeBackground = theme.fontScheme.code.background;
   return {
     default: generateDefaultStyle(theme.fontScheme, layoutScheme),
-    paragraphStyles: generateParagraphStyles(theme.fontScheme, layoutScheme),
-    characterStyles: generateCharacterStyles(theme.fontScheme, layoutScheme),
-    tableStyles: generateTableStyles(tableStyle),
-    codeColors: generateCodeColors(codeTheme, codeBackground)
+    paragraphStyles: generateParagraphStyles(theme.fontScheme, layoutScheme, colorScheme),
+    characterStyles: generateCharacterStyles(theme.fontScheme, layoutScheme, colorScheme),
+    tableStyles: generateTableStyles(tableStyle, colorScheme),
+    codeColors: generateCodeColors(codeTheme, colorScheme),
+    linkColor: colorScheme.accent.link.replace('#', ''),
+    blockquoteColor: colorScheme.blockquote.border.replace('#', '')
   };
 }
 
@@ -238,11 +238,13 @@ function generateDefaultStyle(
  * Generate paragraph styles for headings
  * @param fontScheme - Font scheme configuration (font families, fontWeight)
  * @param layoutScheme - Layout scheme configuration (sizes, alignment, spacing)
+ * @param colorScheme - Color scheme configuration (including heading colors)
  * @returns Paragraph styles
  */
 function generateParagraphStyles(
   fontScheme: FontScheme,
-  layoutScheme: LayoutScheme
+  layoutScheme: LayoutScheme,
+  colorScheme: ColorScheme
 ): Record<string, DOCXHeadingStyle> {
   const styles: Record<string, DOCXHeadingStyle> = {};
 
@@ -251,13 +253,15 @@ function generateParagraphStyles(
   
   headingLevels.forEach((level, index) => {
     const headingLevel = index + 1; // h1 = 1, h2 = 2, etc.
-    const fontHeading = fontScheme.headings[level];
+    const fontHeading = fontScheme.headings[level] as { fontFamily?: string; fontWeight?: string } | undefined;
     const layoutHeading = layoutScheme.headings[level];
 
-    // Inherit font from heading config, fallback to body
-    const font = fontHeading?.fontFamily || fontScheme.body.fontFamily;
+    // Font family priority: h1-h6 specific > headings default > body fallback
+    const font = fontHeading?.fontFamily || fontScheme.headings.fontFamily || fontScheme.body.fontFamily;
     const docxFont = themeManager.getDocxFont(font);
-    const isBold = fontHeading?.fontWeight === 'bold' || fontHeading?.fontWeight === undefined;
+    // Font weight priority: h1-h6 specific > headings default > 'bold'
+    const headingFontWeight = fontHeading?.fontWeight ?? fontScheme.headings.fontWeight ?? 'bold';
+    const isBold = headingFontWeight === 'bold';
 
     // Get heading's spacing from layoutScheme (absolute pt values)
     const headingBeforePt = parseFloat(layoutHeading.spacingBefore || '0pt');
@@ -270,6 +274,9 @@ function generateParagraphStyles(
     const totalBefore = themeManager.ptToTwips(headingBeforePt + 'pt') + Math.round(lineSpacingExtra / 2);
     const totalAfter = Math.max(0, themeManager.ptToTwips(headingAfterPt + 'pt') - Math.round(lineSpacingExtra / 2));
 
+    // Heading color: from colorScheme.headings if specified, otherwise use text.primary
+    const headingColor = colorScheme.headings?.[level] || colorScheme.text.primary;
+
     styles[`heading${headingLevel}`] = {
       id: `Heading${headingLevel}`,
       name: `Heading ${headingLevel}`,
@@ -278,7 +285,8 @@ function generateParagraphStyles(
       run: {
         size: themeManager.ptToHalfPt(layoutHeading.fontSize),
         bold: isBold,
-        font: docxFont
+        font: docxFont,
+        color: headingColor.replace('#', '')
       },
       paragraph: {
         spacing: {
@@ -298,14 +306,17 @@ function generateParagraphStyles(
  * Generate character styles (for inline elements)
  * @param fontScheme - Font scheme configuration (font families)
  * @param layoutScheme - Layout scheme configuration (sizes)
+ * @param colorScheme - Color scheme configuration
  * @returns Character styles
  */
 function generateCharacterStyles(
   fontScheme: FontScheme,
-  layoutScheme: LayoutScheme
+  layoutScheme: LayoutScheme,
+  colorScheme: ColorScheme
 ): { code: DOCXCharacterStyle } {
   const codeFont = fontScheme.code.fontFamily;
-  const codeBackground = fontScheme.code.background.replace('#', ''); // Remove # for DOCX
+  // Use colorScheme for code background color
+  const codeBackground = colorScheme.background.code.replace('#', '');
   const docxFont = themeManager.getDocxFont(codeFont);
 
   return {
@@ -319,16 +330,20 @@ function generateCharacterStyles(
 
 /**
  * Generate table styles for DOCX
- * @param tableStyle - Table style configuration
+ * @param tableStyle - Table style configuration (layout only)
+ * @param colorScheme - Color scheme configuration (colors)
  * @returns Table style configuration
  */
-function generateTableStyles(tableStyle: TableStyleConfig): DOCXTableStyle {
+function generateTableStyles(tableStyle: TableStyleConfig, colorScheme: ColorScheme): DOCXTableStyle {
   const docxTableStyle: DOCXTableStyle = {
     borders: {},
     header: {},
     cell: {},
     zebra: tableStyle.zebra?.enabled || false
   };
+
+  // Use colorScheme for border color
+  const borderColor = colorScheme.table.border.replace('#', '');
 
   // Convert borders based on what's defined in the border object
   const border = tableStyle.border || {};
@@ -338,7 +353,7 @@ function generateTableStyles(tableStyle: TableStyleConfig): DOCXTableStyle {
     docxTableStyle.borders.all = {
       style: convertBorderStyle(border.all.style),
       size: parseBorderWidth(border.all.width, border.all.style),
-      color: border.all.color.replace('#', '')
+      color: borderColor
     };
   }
 
@@ -347,37 +362,36 @@ function generateTableStyles(tableStyle: TableStyleConfig): DOCXTableStyle {
     docxTableStyle.borders.headerTop = {
       style: convertBorderStyle(border.headerTop.style),
       size: parseBorderWidth(border.headerTop.width, border.headerTop.style),
-      color: border.headerTop.color.replace('#', '')
+      color: borderColor
     };
   }
   if (border.headerBottom) {
     docxTableStyle.borders.headerBottom = {
       style: convertBorderStyle(border.headerBottom.style),
       size: parseBorderWidth(border.headerBottom.width, border.headerBottom.style),
-      color: border.headerBottom.color.replace('#', '')
+      color: borderColor
     };
   }
   if (border.rowBottom) {
     docxTableStyle.borders.insideHorizontal = {
       style: convertBorderStyle(border.rowBottom.style),
       size: parseBorderWidth(border.rowBottom.width, border.rowBottom.style),
-      color: border.rowBottom.color.replace('#', '')
+      color: borderColor
     };
   }
   if (border.lastRowBottom) {
     docxTableStyle.borders.lastRowBottom = {
       style: convertBorderStyle(border.lastRowBottom.style),
       size: parseBorderWidth(border.lastRowBottom.width, border.lastRowBottom.style),
-      color: border.lastRowBottom.color.replace('#', '')
+      color: borderColor
     };
   }
 
-  // Header styles
-  if (tableStyle.header.background) {
-    docxTableStyle.header.shading = {
-      fill: tableStyle.header.background.replace('#', '')
-    };
-  }
+  // Header styles - use colorScheme for colors
+  docxTableStyle.header.shading = {
+    fill: colorScheme.table.headerBackground.replace('#', '')
+  };
+  docxTableStyle.header.color = colorScheme.table.headerText.replace('#', '');
   if (tableStyle.header.fontWeight) {
     docxTableStyle.header.bold = tableStyle.header.fontWeight === 'bold';
   }
@@ -391,11 +405,11 @@ function generateTableStyles(tableStyle: TableStyleConfig): DOCXTableStyle {
     right: paddingTwips
   };
 
-  // Zebra stripes
+  // Zebra stripes - use colorScheme for colors
   if (tableStyle.zebra?.enabled) {
     docxTableStyle.zebra = {
-      even: tableStyle.zebra.evenBackground.replace('#', ''),
-      odd: tableStyle.zebra.oddBackground.replace('#', '')
+      even: colorScheme.table.zebraEven.replace('#', ''),
+      odd: colorScheme.table.zebraOdd.replace('#', '')
     };
   }
 
@@ -405,10 +419,10 @@ function generateTableStyles(tableStyle: TableStyleConfig): DOCXTableStyle {
 /**
  * Generate code color mappings for DOCX export
  * @param codeTheme - Code highlighting theme
- * @param codeBackground - Code background color from theme
+ * @param colorScheme - Color scheme configuration
  * @returns Code color mappings
  */
-function generateCodeColors(codeTheme: CodeThemeConfig, codeBackground: string): DOCXCodeColors {
+function generateCodeColors(codeTheme: CodeThemeConfig, colorScheme: ColorScheme): DOCXCodeColors {
   const colorMap: Record<string, string> = {};
 
   // Convert color mappings
@@ -417,7 +431,7 @@ function generateCodeColors(codeTheme: CodeThemeConfig, codeBackground: string):
   });
 
   return {
-    background: codeBackground?.replace('#', '') || 'f6f8fa',
+    background: colorScheme.background.code.replace('#', ''),
     foreground: codeTheme.foreground?.replace('#', '') || '24292e',
     colors: colorMap
   };
@@ -478,7 +492,7 @@ export async function loadThemeForDOCX(themeId: string): Promise<DOCXThemeStyles
     await themeManager.initialize();
     
     // Load theme preset
-    const theme = (await themeManager.loadTheme(themeId)) as unknown as ThemeConfig;
+    const theme = (await themeManager.loadTheme(themeId)) as unknown as ThemeConfig & { colorScheme: string };
 
     // Get platform for resource loading
     const platform = globalThis.platform as { 
@@ -505,6 +519,11 @@ export async function loadThemeForDOCX(themeId: string): Promise<DOCXThemeStyles
       `themes/layout-schemes/${theme.layoutScheme}.json`
     );
 
+    // Load color scheme
+    const colorScheme = await fetchResource<ColorScheme>(
+      `themes/color-schemes/${theme.colorScheme}.json`
+    );
+
     // Load table style
     const tableStyle = await fetchResource<TableStyleConfig>(
       `themes/table-styles/${theme.tableStyle}.json`
@@ -516,7 +535,7 @@ export async function loadThemeForDOCX(themeId: string): Promise<DOCXThemeStyles
     );
 
     // Generate DOCX styles
-    return themeToDOCXStyles(theme, layoutScheme, tableStyle, codeTheme);
+    return themeToDOCXStyles(theme, layoutScheme, colorScheme, tableStyle, codeTheme);
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : String(error);
     console.error('Error loading theme for DOCX:', errMsg);

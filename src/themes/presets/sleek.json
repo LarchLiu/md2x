@@ -1,0 +1,22 @@
+{
+  "id": "sleek",
+  "name": "流线科技",
+  "name_en": "Sleek Tech",
+  "description": "科技感设计，现代 SaaS 产品风格",
+  "description_en": "Tech-focused design with modern SaaS product style",
+  "author": "Theme System",
+  "version": "1.0.0",
+  "fontScheme": {
+    "body": {
+      "fontFamily": "Helvetica Neue"
+    },
+    "headings": {},
+    "code": {
+      "fontFamily": "Monaco"
+    }
+  },
+  "layoutScheme": "technical",
+  "colorScheme": "cool",
+  "tableStyle": "modern-tech",
+  "codeTheme": "cool-modern"
+}

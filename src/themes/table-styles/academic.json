@@ -4,20 +4,16 @@
   "name_en": "Academic",
   "description": "双线表头 + 单线分隔，适合论文和学术文档",
   "description_en": "Double-line header + single-line separators, ideal for papers and academic documents",
-  
   "border": {
     "headerTop": {
-      "color": "#000000",
       "width": "1.5pt",
       "style": "double"
     },
     "headerBottom": {
-      "color": "#000000",
       "width": "1.5pt",
       "style": "single"
     },
     "lastRowBottom": {
-      "color": "#000000",
       "width": "1.5pt",
       "style": "single"
     }

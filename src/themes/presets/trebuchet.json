@@ -12,11 +12,11 @@
     },
     "headings": {},
     "code": {
-      "fontFamily": "Monaco",
-      "background": "#f8f8f8"
+      "fontFamily": "Monaco"
     }
   },
-  "layoutScheme": "document",
-  "tableStyle": "modern-tech",
-  "codeTheme": "colorful"
+  "layoutScheme": "magazine",
+  "colorScheme": "cool",
+  "tableStyle": "minimal-gray",
+  "codeTheme": "cool-modern"
 }

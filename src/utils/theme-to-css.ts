@@ -5,14 +5,14 @@
  * Theme v2.0 Format:
  * - fontScheme: only font families (no sizes)
  * - layoutScheme: all sizes and spacing (absolute pt values)
- * - colorScheme: colors (future)
+ * - colorScheme: colors (text, accent, code background)
  * - tableStyle: table styling
  * - codeTheme: code syntax highlighting
  */
 
 import themeManager from './theme-manager';
 import { fetchJSON } from './fetch-utils';
-import type { PlatformAPI } from '../types/index';
+import type { PlatformAPI, ColorScheme } from '../types/index';
 
 // ============================================================================
 // Type Definitions
@@ -36,6 +36,7 @@ interface HeadingConfig {
 /**
  * Font scheme configuration (font-related properties only)
  * Layout properties (fontSize, lineHeight, spacing) are in LayoutScheme
+ * Color properties are in ColorScheme
  */
 interface FontScheme {
   body: {
@@ -44,7 +45,6 @@ interface FontScheme {
   headings: Record<string, HeadingConfig>;
   code: {
     fontFamily: string;
-    background: string;
   };
 }
 
@@ -54,22 +54,21 @@ interface FontScheme {
 export interface ThemeConfig {
   fontScheme: FontScheme;
   layoutScheme: string;    // reference to layout-schemes/
+  colorScheme: string;     // reference to color-schemes/
   tableStyle: string;
   codeTheme: string;
-  colorScheme?: string;    // Future: reference to color-schemes/
 }
 
 /**
- * Border configuration
+ * Border configuration (layout properties only, color from ColorScheme)
  */
 interface BorderConfig {
   style: string;
   width: string;
-  color: string;
 }
 
 /**
- * Table style configuration
+ * Table style configuration (layout properties only, colors from ColorScheme)
  */
 export interface TableStyleConfig {
   border?: {
@@ -80,9 +79,7 @@ export interface TableStyleConfig {
     lastRowBottom?: BorderConfig;
   };
   header: {
-    background?: string;
     fontWeight?: string;
-    color?: string;
     fontSize?: string;
   };
   cell: {
@@ -90,8 +87,6 @@ export interface TableStyleConfig {
   };
   zebra?: {
     enabled: boolean;
-    evenBackground: string;
-    oddBackground: string;
   };
 }
 
@@ -177,6 +172,7 @@ export interface FontConfig {
  * Convert theme configuration to CSS
  * @param theme - Theme configuration object
  * @param layoutScheme - Layout scheme configuration
+ * @param colorScheme - Color scheme configuration
  * @param tableStyle - Table style configuration
  * @param codeTheme - Code highlighting theme
  * @returns CSS string
@@ -184,22 +180,23 @@ export interface FontConfig {
 export function themeToCSS(
   theme: ThemeConfig,
   layoutScheme: LayoutScheme,
+  colorScheme: ColorScheme,
   tableStyle: TableStyleConfig,
   codeTheme: CodeThemeConfig
 ): string {
   const css: string[] = [];
 
   // Font and layout CSS (combined from fontScheme + layoutScheme)
-  css.push(generateFontAndLayoutCSS(theme.fontScheme, layoutScheme));
+  css.push(generateFontAndLayoutCSS(theme.fontScheme, layoutScheme, colorScheme));
 
-  // Table style
-  css.push(generateTableCSS(tableStyle));
+  // Table style (uses colorScheme for colors)
+  css.push(generateTableCSS(tableStyle, colorScheme));
 
-  // Code highlighting
-  css.push(generateCodeCSS(theme.fontScheme.code, codeTheme, layoutScheme.code));
+  // Code highlighting (use colorScheme.background.code)
+  css.push(generateCodeCSS(theme.fontScheme.code, codeTheme, layoutScheme.code, colorScheme));
 
-  // Block spacing
-  css.push(generateBlockSpacingCSS(layoutScheme));
+  // Block spacing (uses colorScheme for blockquote border)
+  css.push(generateBlockSpacingCSS(layoutScheme, colorScheme));
 
   return css.join('\n\n');
 }
@@ -208,12 +205,13 @@ export function themeToCSS(
  * Generate font and layout CSS
  * @param fontScheme - Font scheme configuration (font families)
  * @param layoutScheme - Layout scheme configuration (sizes and spacing)
+ * @param colorScheme - Color scheme configuration
  * @returns CSS string
  */
-function generateFontAndLayoutCSS(fontScheme: FontScheme, layoutScheme: LayoutScheme): string {
+function generateFontAndLayoutCSS(fontScheme: FontScheme, layoutScheme: LayoutScheme, colorScheme: ColorScheme): string {
   const css: string[] = [];
 
-  // Body font - font family from fontScheme, size from layoutScheme
+  // Body font - font family from fontScheme, size from layoutScheme, color from colorScheme
   const bodyFontFamily = themeManager.buildFontFamily(fontScheme.body.fontFamily);
   const bodyFontSize = themeManager.ptToPx(layoutScheme.body.fontSize);
   const bodyLineHeight = layoutScheme.body.lineHeight;
@@ -222,6 +220,16 @@ function generateFontAndLayoutCSS(fontScheme: FontScheme, layoutScheme: LayoutSc
   font-family: ${bodyFontFamily};
   font-size: ${bodyFontSize};
   line-height: ${bodyLineHeight};
+  color: ${colorScheme.text.primary};
+}`);
+
+  // Link colors from colorScheme
+  css.push(`#markdown-content a {
+  color: ${colorScheme.accent.link};
+}`);
+
+  css.push(`#markdown-content a:hover {
+  color: ${colorScheme.accent.linkHover};
 }`);
 
   // KaTeX math expressions - use body font size
@@ -233,18 +241,27 @@ function generateFontAndLayoutCSS(fontScheme: FontScheme, layoutScheme: LayoutSc
   const headingLevels = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'] as const;
 
   headingLevels.forEach((level) => {
-    const fontHeading = fontScheme.headings[level];
+    const fontHeading = fontScheme.headings[level] as { fontFamily?: string; fontWeight?: string } | undefined;
     const layoutHeading = layoutScheme.headings[level];
     
-    // Font family: inherit from heading config, fallback to body
-    const fontFamily = themeManager.buildFontFamily(fontHeading?.fontFamily || fontScheme.body.fontFamily);
+    // Font family priority: h1-h6 specific > headings default > body fallback
+    const fontFamily = themeManager.buildFontFamily(
+      fontHeading?.fontFamily || 
+      fontScheme.headings.fontFamily || 
+      fontScheme.body.fontFamily
+    );
     const fontSize = themeManager.ptToPx(layoutHeading.fontSize);
-    const fontWeight = fontHeading?.fontWeight || 'bold';
+    // Font weight priority: h1-h6 specific > headings default > 'bold'
+    const fontWeight = fontHeading?.fontWeight || fontScheme.headings.fontWeight || 'bold';
+    
+    // Heading color: from colorScheme.headings if specified, otherwise inherit text.primary
+    const headingColor = colorScheme.headings?.[level] || colorScheme.text.primary;
 
     const styles = [
       `  font-family: ${fontFamily};`,
       `  font-size: ${fontSize};`,
-      `  font-weight: ${fontWeight};`
+      `  font-weight: ${fontWeight};`,
+      `  color: ${headingColor};`
     ];
 
     // Add alignment from layoutScheme
@@ -270,10 +287,11 @@ ${styles.join('\n')}
 
 /**
  * Generate table-related CSS
- * @param tableStyle - Table style configuration
+ * @param tableStyle - Table style configuration (for layout like padding, border width/style)
+ * @param colorScheme - Color scheme configuration (for colors)
  * @returns CSS string
  */
-function generateTableCSS(tableStyle: TableStyleConfig): string {
+function generateTableCSS(tableStyle: TableStyleConfig, colorScheme: ColorScheme): string {
   const css: string[] = [];
 
   // Base table styles
@@ -285,6 +303,8 @@ function generateTableCSS(tableStyle: TableStyleConfig): string {
 
   // Border styles
   const border = tableStyle.border || {};
+  // Use colorScheme for border color
+  const borderColor = colorScheme.table.border;
   
   // Convert pt to px for border width
   const convertBorderWidth = (width: string): string => {
@@ -327,10 +347,10 @@ function generateTableCSS(tableStyle: TableStyleConfig): string {
 }`);
 
   if (border.all) {
-    // Full borders mode
+    // Full borders mode - use colorScheme for color
     const borderWidth = calculateCssBorderWidth(border.all.width, border.all.style);
     const borderStyle = convertBorderStyle(border.all.style);
-    const borderValue = `${borderWidth} ${borderStyle} ${border.all.color}`;
+    const borderValue = `${borderWidth} ${borderStyle} ${borderColor}`;
     css.push(`#markdown-content table th,
 #markdown-content table td {
   border: ${borderValue};
@@ -342,12 +362,12 @@ function generateTableCSS(tableStyle: TableStyleConfig): string {
   border: none;
 }`);
 
-    // Special borders
+    // Special borders - use colorScheme for color
     if (border.headerTop) {
       const width = calculateCssBorderWidth(border.headerTop.width, border.headerTop.style);
       const style = convertBorderStyle(border.headerTop.style);
       css.push(`#markdown-content table th {
-  border-top: ${width} ${style} ${border.headerTop.color};
+  border-top: ${width} ${style} ${borderColor};
 }`);
     }
 
@@ -355,7 +375,7 @@ function generateTableCSS(tableStyle: TableStyleConfig): string {
       const width = calculateCssBorderWidth(border.headerBottom.width, border.headerBottom.style);
       const style = convertBorderStyle(border.headerBottom.style);
       css.push(`#markdown-content table th {
-  border-bottom: ${width} ${style} ${border.headerBottom.color};
+  border-bottom: ${width} ${style} ${borderColor};
 }`);
     }
 
@@ -363,7 +383,7 @@ function generateTableCSS(tableStyle: TableStyleConfig): string {
       const width = calculateCssBorderWidth(border.rowBottom.width, border.rowBottom.style);
       const style = convertBorderStyle(border.rowBottom.style);
       css.push(`#markdown-content table td {
-  border-bottom: ${width} ${style} ${border.rowBottom.color};
+  border-bottom: ${width} ${style} ${borderColor};
 }`);
     }
 
@@ -371,26 +391,22 @@ function generateTableCSS(tableStyle: TableStyleConfig): string {
       const width = calculateCssBorderWidth(border.lastRowBottom.width, border.lastRowBottom.style);
       const style = convertBorderStyle(border.lastRowBottom.style);
       css.push(`#markdown-content table tr:last-child td {
-  border-bottom: ${width} ${style} ${border.lastRowBottom.color};
+  border-bottom: ${width} ${style} ${borderColor};
 }`);
     }
   }
 
-  // Header styles
+  // Header styles - use colorScheme for colors
   const header = tableStyle.header;
   const headerStyles: string[] = [];
 
-  if (header.background) {
-    headerStyles.push(`  background-color: ${header.background};`);
-  }
+  // Always use colorScheme for header background and text
+  headerStyles.push(`  background-color: ${colorScheme.table.headerBackground};`);
+  headerStyles.push(`  color: ${colorScheme.table.headerText};`);
 
   if (header.fontWeight) {
     const fontWeight = header.fontWeight === 'bold' ? 'bold' : header.fontWeight;
     headerStyles.push(`  font-weight: ${fontWeight};`);
-  }
-
-  if (header.color) {
-    headerStyles.push(`  color: ${header.color};`);
   }
 
   if (header.fontSize) {
@@ -403,14 +419,14 @@ ${headerStyles.join('\n')}
 }`);
   }
 
-  // Zebra stripes
+  // Zebra stripes - always use colorScheme colors
   if (tableStyle.zebra && tableStyle.zebra.enabled) {
     css.push(`#markdown-content table tr:nth-child(even) {
-  background-color: ${tableStyle.zebra.evenBackground};
+  background-color: ${colorScheme.table.zebraEven};
 }`);
 
     css.push(`#markdown-content table tr:nth-child(odd) {
-  background-color: ${tableStyle.zebra.oddBackground};
+  background-color: ${colorScheme.table.zebraOdd};
 }`);
   }
 
@@ -422,19 +438,21 @@ ${headerStyles.join('\n')}
  * @param codeConfig - Code font configuration from fontScheme
  * @param codeTheme - Code highlighting theme
  * @param codeLayout - Code layout configuration from layoutScheme
+ * @param colorScheme - Color scheme configuration
  * @returns CSS string
  */
 function generateCodeCSS(
-  codeConfig: { fontFamily: string; background: string },
+  codeConfig: { fontFamily: string },
   codeTheme: CodeThemeConfig,
-  codeLayout: { fontSize: string }
+  codeLayout: { fontSize: string },
+  colorScheme: ColorScheme
 ): string {
   const css: string[] = [];
 
-  // Code font settings
+  // Code font settings - background from colorScheme
   const codeFontFamily = themeManager.buildFontFamily(codeConfig.fontFamily);
   const codeFontSize = themeManager.ptToPx(codeLayout.fontSize);
-  const codeBackground = codeConfig.background;
+  const codeBackground = colorScheme.background.code;
 
   css.push(`#markdown-content code {
   font-family: ${codeFontFamily};
@@ -474,9 +492,10 @@ function generateCodeCSS(
 /**
  * Generate block spacing CSS from layout scheme
  * @param layoutScheme - Layout scheme configuration
+ * @param colorScheme - Color scheme configuration (for blockquote border)
  * @returns CSS string
  */
-function generateBlockSpacingCSS(layoutScheme: LayoutScheme): string {
+function generateBlockSpacingCSS(layoutScheme: LayoutScheme, colorScheme: ColorScheme): string {
   const css: string[] = [];
   const blocks = layoutScheme.blocks;
 
@@ -514,7 +533,7 @@ function generateBlockSpacingCSS(layoutScheme: LayoutScheme): string {
 }`);
   }
 
-  // Blockquote spacing
+  // Blockquote spacing and border color from colorScheme
   if (blocks.blockquote) {
     const bq = blocks.blockquote;
     const marginBefore = toPx(bq.spacingBefore);
@@ -524,6 +543,7 @@ function generateBlockSpacingCSS(layoutScheme: LayoutScheme): string {
     css.push(`#markdown-content blockquote {
   margin: ${marginBefore} 0 ${marginAfter} 0;
   padding: ${paddingVertical} ${paddingHorizontal};
+  border-left-color: ${colorScheme.blockquote.border};
 }`);
   }
 
@@ -581,44 +601,11 @@ export function applyThemeCSS(css: string): void {
 }
 
 /**
- * Apply theme from pre-loaded data (used by mobile when Flutter sends theme data)
- * @param theme - Theme configuration
- * @param layoutScheme - Layout scheme configuration
- * @param tableStyle - Table style configuration
- * @param codeTheme - Code theme configuration
- */
-export function applyThemeFromData(
-  theme: ThemeConfig,
-  layoutScheme: LayoutScheme,
-  tableStyle: TableStyleConfig,
-  codeTheme: CodeThemeConfig
-): void {
-  try {
-    // Generate CSS
-    const css = themeToCSS(theme, layoutScheme, tableStyle, codeTheme);
-
-    // Apply CSS
-    applyThemeCSS(css);
-  } catch (error) {
-    console.error('Error applying theme from data:', error);
-    throw error;
-  }
-}
-
-/**
- * Theme load result containing layout information
- */
-export interface ThemeLoadResult {
-  theme: ThemeConfig;
-  layoutScheme: LayoutScheme;
-}
-
-/**
  * Load and apply complete theme
+ * Platforms only need to call this with themeId - all theme logic is handled internally
  * @param themeId - Theme ID to load
- * @returns Theme and layout scheme for additional configuration
  */
-export async function loadAndApplyTheme(themeId: string): Promise<ThemeLoadResult> {
+export async function loadAndApplyTheme(themeId: string): Promise<void> {
   try {
     const platform = getPlatform();
     
@@ -628,6 +615,10 @@ export async function loadAndApplyTheme(themeId: string): Promise<ThemeLoadResul
     // Load layout scheme
     const layoutSchemeUrl = platform.resource.getURL(`themes/layout-schemes/${theme.layoutScheme}.json`);
     const layoutScheme = await fetchJSON(layoutSchemeUrl) as LayoutScheme;
+
+    // Load color scheme
+    const colorSchemeUrl = platform.resource.getURL(`themes/color-schemes/${theme.colorScheme}.json`);
+    const colorScheme = await fetchJSON(colorSchemeUrl) as ColorScheme;
 
     // Load table style
     const tableStyle = await fetchJSON(
@@ -639,13 +630,14 @@ export async function loadAndApplyTheme(themeId: string): Promise<ThemeLoadResul
       platform.resource.getURL(`themes/code-themes/${theme.codeTheme}.json`)
     ) as CodeThemeConfig;
 
-    // Generate CSS
-    const css = themeToCSS(theme, layoutScheme, tableStyle, codeTheme);
-
-    // Apply CSS
+    // Generate and apply CSS
+    const css = themeToCSS(theme, layoutScheme, colorScheme, tableStyle, codeTheme);
     applyThemeCSS(css);
     
-    return { theme, layoutScheme };
+    // Set renderer theme config for diagrams (Mermaid, Graphviz, etc.)
+    const fontFamily = themeManager.buildFontFamily(theme.fontScheme.body.fontFamily);
+    const fontSize = parseFloat(layoutScheme.body.fontSize);
+    platform.renderer.setThemeConfig({ fontFamily, fontSize });
   } catch (error) {
     console.error('[Theme] Error loading theme:', error);
     throw error;

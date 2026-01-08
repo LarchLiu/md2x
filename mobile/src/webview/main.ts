@@ -234,36 +234,8 @@ async function handleLoadMarkdown(payload: LoadMarkdownPayload): Promise<void> {
       // Clear container FIRST, then apply theme (avoids flicker from old content with new style)
       container.innerHTML = '';
 
-      // Load and apply theme using shared function (same as Chrome/Firefox/VSCode)
-      const { theme, layoutScheme } = await loadAndApplyTheme(currentThemeId);
-
-      // Set renderer theme config for diagrams
-      if (layoutScheme?.body && theme?.fontScheme?.body) {
-        const fontFamily = themeManager.buildFontFamily(theme.fontScheme.body.fontFamily);
-        const fontSize = parseFloat(layoutScheme.body.fontSize || '16');
-        platform.renderer.setThemeConfig({
-          fontFamily: fontFamily,
-          fontSize: fontSize
-        });
-
-        // Initialize Mermaid with new font
-        const mermaidGlobal = (window as { mermaid?: { initialize?: (config: Record<string, unknown>) => void } }).mermaid;
-        if (mermaidGlobal && typeof mermaidGlobal.initialize === 'function') {
-          mermaidGlobal.initialize({
-            startOnLoad: false,
-            securityLevel: 'loose',
-            lineHeight: 1.6,
-            themeVariables: {
-              fontFamily: fontFamily,
-              background: 'transparent'
-            },
-            flowchart: {
-              htmlLabels: true,
-              curve: 'basis'
-            }
-          });
-        }
-      }
+      // Load and apply theme using shared function (all theme logic is handled internally)
+      await loadAndApplyTheme(currentThemeId);
 
       // Apply saved zoom level before rendering to avoid flicker
       if (currentZoomLevel !== 1) {
@@ -368,7 +340,10 @@ async function handleSetTheme(payload: SetThemePayload): Promise<void> {
   
   // Re-render if we have content and theme actually changed
   if (currentMarkdown && previousThemeId !== themeId) {
-    await handleLoadMarkdown({ content: currentMarkdown, filename: currentFilename || '' });
+    // Get current line from scrollSyncController before re-render
+    const scrollLine = scrollSyncController?.getCurrentLine() ?? 0;
+    
+    await handleLoadMarkdown({ content: currentMarkdown, filename: currentFilename || '', scrollLine });
   }
 }
 

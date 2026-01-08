@@ -4,25 +4,19 @@
   "name_en": "High Contrast",
   "description": "黑白高对比 + 粗边框，适合打印和可访问性需求",
   "description_en": "Black & white high contrast with thick borders, ideal for printing and accessibility",
-  
   "border": {
     "all": {
-      "color": "#000000",
       "width": "2pt",
       "style": "single"
     }
   },
   "header": {
-    "background": "#333333",
-    "fontWeight": "bold",
-    "color": "#FFFFFF"
+    "fontWeight": "bold"
   },
   "cell": {
     "padding": "8pt"
   },
   "zebra": {
-    "enabled": true,
-    "evenBackground": "#f0f0f0",
-    "oddBackground": "#ffffff"
+    "enabled": true
   }
 }

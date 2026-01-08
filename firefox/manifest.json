@@ -78,7 +78,8 @@
         "themes/presets/*.json",
         "themes/table-styles/*.json",
         "themes/code-themes/*.json",
-        "themes/layout-schemes/*.json"
+        "themes/layout-schemes/*.json",
+        "themes/color-schemes/*.json"
       ],
       "matches": [
         "file:///*",

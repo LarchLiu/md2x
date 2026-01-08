@@ -256,17 +256,10 @@ export async function initializeViewerMain(options: ViewerMainOptions): Promise<
       scrollSyncController.setTargetLine(savedScrollLine);
     }
 
-    // Load and apply theme
+    // Load and apply theme (all theme logic including renderer config is handled internally)
     try {
       const themeId = await themeManager.loadSelectedTheme();
-      const { theme, layoutScheme } = await loadAndApplyTheme(themeId);
-
-      if (theme?.fontScheme?.body && layoutScheme?.body && themeConfigRenderer) {
-        const fontFamily = themeManager.buildFontFamily(theme.fontScheme.body.fontFamily);
-        const fontSize = parseFloat(layoutScheme.body.fontSize);
-        const themeConfig: RendererThemeConfig = { fontFamily, fontSize };
-        themeConfigRenderer.setThemeConfig(themeConfig);
-      }
+      await loadAndApplyTheme(themeId);
     } catch (error) {
       // eslint-disable-next-line no-console
       console.error('Failed to load theme, using defaults:', error);

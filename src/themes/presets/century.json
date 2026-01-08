@@ -8,15 +8,15 @@
   "version": "1.0.0",
   "fontScheme": {
     "body": {
-      "fontFamily": "Trebuchet MS"
+      "fontFamily": "Century Gothic"
     },
     "headings": {},
     "code": {
-      "fontFamily": "Monaco",
-      "background": "#f5f5f5"
+      "fontFamily": "Monaco"
     }
   },
-  "layoutScheme": "document",
-  "tableStyle": "professional",
-  "codeTheme": "business-contrast"
+  "layoutScheme": "magazine",
+  "colorScheme": "cool",
+  "tableStyle": "minimal-gray",
+  "codeTheme": "cool-modern"
 }

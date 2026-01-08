@@ -1,0 +1,22 @@
+{
+  "id": "coder",
+  "name": "开发文档",
+  "name_en": "Developer Docs",
+  "description": "技术文档风格，适合 README、API 文档，代码块突出",
+  "description_en": "Technical documentation style for README and API docs with prominent code blocks",
+  "author": "Theme System",
+  "version": "1.0.0",
+  "fontScheme": {
+    "body": {
+      "fontFamily": "Arial"
+    },
+    "headings": {},
+    "code": {
+      "fontFamily": "Consolas"
+    }
+  },
+  "layoutScheme": "technical",
+  "colorScheme": "cool",
+  "tableStyle": "grid",
+  "codeTheme": "cool-modern"
+}

@@ -11,31 +11,14 @@
       "fontFamily": "Times New Roman"
     },
     "headings": {
-      "h1": {
-        "fontFamily": "Georgia"
-      },
-      "h2": {
-        "fontFamily": "Georgia"
-      },
-      "h3": {
-        "fontFamily": "Georgia"
-      },
-      "h4": {
-        "fontFamily": "Georgia"
-      },
-      "h5": {
-        "fontFamily": "Georgia"
-      },
-      "h6": {
-        "fontFamily": "Georgia"
-      }
+      "fontFamily": "Georgia"
     },
     "code": {
-      "fontFamily": "Consolas",
-      "background": "#f0f0f0"
+      "fontFamily": "Consolas"
     }
   },
   "layoutScheme": "magazine",
+  "colorScheme": "sepia",
   "tableStyle": "grid",
-  "codeTheme": "light-clean"
+  "codeTheme": "warm-book"
 }

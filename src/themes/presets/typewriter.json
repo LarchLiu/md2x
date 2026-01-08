@@ -12,11 +12,11 @@
     },
     "headings": {},
     "code": {
-      "fontFamily": "Courier New",
-      "background": "#f4f4f4"
+      "fontFamily": "Courier New"
     }
   },
   "layoutScheme": "book",
-  "tableStyle": "high-contrast",
-  "codeTheme": "colorful"
+  "colorScheme": "sepia",
+  "tableStyle": "borderless",
+  "codeTheme": "warm-book"
 }

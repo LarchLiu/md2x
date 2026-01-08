@@ -4,24 +4,19 @@
   "name_en": "Zebra",
   "description": "奇偶行不同背景色，无边框",
   "description_en": "Alternating row colors, no borders",
-  
   "border": {
     "headerBottom": {
-      "color": "#e0e0e0",
       "width": "1pt",
       "style": "single"
     }
   },
   "header": {
-    "background": "#e0e0e0",
     "fontWeight": "bold"
   },
   "cell": {
     "padding": "8pt"
   },
   "zebra": {
-    "enabled": true,
-    "evenBackground": "#f9f9f9",
-    "oddBackground": "#ffffff"
+    "enabled": true
   }
 }

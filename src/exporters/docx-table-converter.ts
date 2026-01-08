@@ -20,7 +20,7 @@ import {
 import type { DOCXThemeStyles, DOCXTableNode } from '../types/docx';
 import type { InlineResult, InlineNode } from './docx-inline-converter';
 
-type ConvertInlineNodesFunction = (children: InlineNode[], options?: { bold?: boolean; size?: number }) => Promise<InlineResult[]>;
+type ConvertInlineNodesFunction = (children: InlineNode[], options?: { bold?: boolean; size?: number; color?: string }) => Promise<InlineResult[]>;
 
 interface TableConverterOptions {
   themeStyles: DOCXThemeStyles;
@@ -73,8 +73,9 @@ export function createTableConverter({ themeStyles, convertInlineNodes }: TableC
 
           if (cell.type === 'tableCell') {
             const isBold = isHeaderRow && (headerStyles.bold ?? true);
-            const children = isBold
-              ? await convertInlineNodes((cell.children || []) as InlineNode[], { bold: true, size: 20 })
+            const headerColor = isHeaderRow && headerStyles.color ? headerStyles.color : undefined;
+            const children = isHeaderRow
+              ? await convertInlineNodes((cell.children || []) as InlineNode[], { bold: isBold, size: 20, color: headerColor })
               : await convertInlineNodes((cell.children || []) as InlineNode[], { size: 20 });
 
             const cellAlignment = alignments[colIndex];

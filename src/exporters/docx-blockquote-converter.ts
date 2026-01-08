@@ -34,7 +34,6 @@ export interface BlockquoteConverter {
 
 // Blockquote style constants
 const BLOCKQUOTE_STYLES = {
-  leftBorderColor: 'DFE2E5',
   leftBorderSize: 18,
 };
 
@@ -140,7 +139,7 @@ export function createBlockquoteConverter({ themeStyles, convertInlineNodes, con
         left: { 
           style: BorderStyle.SINGLE, 
           size: BLOCKQUOTE_STYLES.leftBorderSize, 
-          color: BLOCKQUOTE_STYLES.leftBorderColor 
+          color: themeStyles.blockquoteColor 
         },
       },
     });

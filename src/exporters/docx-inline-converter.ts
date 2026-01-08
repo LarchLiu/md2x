@@ -52,6 +52,7 @@ interface InlineConverterOptions {
   linkDefinitions?: Map<string, LinkDefinition>;
   renderer?: Renderer | null;
   emojiStyle?: EmojiStyle;
+  linkColor?: string;  // Link color from colorScheme (hex without #)
 }
 
 /**
@@ -264,7 +265,8 @@ export function createInlineConverter({
   reportResourceProgress,
   linkDefinitions,
   renderer,
-  emojiStyle = 'system'
+  emojiStyle = 'system',
+  linkColor = '0366D6'  // Default to GitHub blue
 }: InlineConverterOptions): InlineConverter {
   // Get emoji font based on user preference (null for system style)
   const emojiFont = emojiStyle === 'system' ? null : getEmojiFont(emojiStyle);
@@ -423,8 +425,8 @@ export function createInlineConverter({
 
     const linkStyle = {
       style: 'Hyperlink' as const,
-      color: '0366D6',
-      underline: { type: 'single' as const, color: '0366D6' },
+      color: linkColor,
+      underline: { type: 'single' as const, color: linkColor },
       ...parentStyle,
     };
 
@@ -451,8 +453,8 @@ export function createInlineConverter({
 
     const linkStyle = {
       style: 'Hyperlink' as const,
-      color: '0366D6',
-      underline: { type: 'single' as const, color: '0366D6' },
+      color: linkColor,
+      underline: { type: 'single' as const, color: linkColor },
       ...parentStyle,
     };
 

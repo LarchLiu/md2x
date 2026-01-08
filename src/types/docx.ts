@@ -121,6 +121,7 @@ export interface DOCXTableStyle {
   borders: DOCXTableBorders;
   header: {
     shading?: { fill: string };
+    color?: string;  // Header text color (hex without #)
     bold?: boolean;
   };
   cell: {
@@ -161,6 +162,8 @@ export interface DOCXThemeStyles {
   };
   tableStyles: DOCXTableStyle;
   codeColors: DOCXCodeColors;
+  linkColor: string;  // Link color from colorScheme (hex without #)
+  blockquoteColor: string;  // Blockquote left border color from colorScheme (hex without #)
 }
 
 // =============================================================================

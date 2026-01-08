@@ -11,31 +11,14 @@
       "fontFamily": "SimSun"
     },
     "headings": {
-      "h1": {
-        "fontFamily": "Georgia"
-      },
-      "h2": {
-        "fontFamily": "Georgia"
-      },
-      "h3": {
-        "fontFamily": "Georgia"
-      },
-      "h4": {
-        "fontFamily": "Georgia"
-      },
-      "h5": {
-        "fontFamily": "Georgia"
-      },
-      "h6": {
-        "fontFamily": "Georgia"
-      }
+      "fontFamily": "Georgia"
     },
     "code": {
-      "fontFamily": "Monaco",
-      "background": "#f7f7f7"
+      "fontFamily": "Monaco"
     }
   },
-  "layoutScheme": "document",
+  "layoutScheme": "book",
+  "colorScheme": "warm",
   "tableStyle": "grid",
-  "codeTheme": "cool-modern"
+  "codeTheme": "warm-book"
 }
