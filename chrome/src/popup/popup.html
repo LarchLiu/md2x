@@ -148,6 +148,49 @@
         </div>
 
         <div class="info-section">
+          <h3 data-i18n="settings_general_title"></h3>
+          <div style="margin: 10px 0;">
+            <label for="frontmatter-display" data-i18n="settings_frontmatter_display"></label>
+            <select id="frontmatter-display">
+              <option value="hide" selected data-i18n="settings_frontmatter_hide">Hide</option>
+              <option value="table" data-i18n="settings_frontmatter_table">Table</option>
+              <option value="raw" data-i18n="settings_frontmatter_raw">Raw (blockquote)</option>
+            </select>
+            <div class="settings-note" data-i18n="settings_frontmatter_note"></div>
+          </div>
+
+          <div style="margin: 10px 0;">
+            <label for="docx-emoji-style" data-i18n="settings_docx_emoji_style"></label>
+            <select id="docx-emoji-style">
+              <option value="system" selected data-i18n="settings_docx_emoji_style_system">System style</option>
+              <option value="windows" data-i18n="settings_docx_emoji_style_windows">Windows style</option>
+              <option value="apple" data-i18n="settings_docx_emoji_style_apple">Apple style</option>
+            </select>
+            <div class="settings-note" data-i18n="settings_docx_emoji_style_note"></div>
+          </div>
+
+          <div style="margin: 10px 0;">
+            <label class="checkbox-label">
+              <input type="checkbox" id="docx-hr-page-break">
+              <span data-i18n="settings_docx_hr_page_break"></span>
+            </label>
+            <div class="settings-note" data-i18n="settings_docx_hr_page_break_note"></div>
+          </div>
+
+          <div style="margin: 10px 0;">
+            <label for="max-cache-items" data-i18n="settings_max_cache_label"></label>
+            <select id="max-cache-items">
+              <option value="100">100</option>
+              <option value="200">200</option>
+              <option value="500">500</option>
+              <option value="1000">1000</option>
+              <option value="2000">2000</option>
+              <option value="5000">5000</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="info-section">
           <h3 data-i18n="settings_supported_formats_title"></h3>
           <div style="margin: 10px 0;">
             <label class="checkbox-label">
@@ -182,49 +225,6 @@
               <input type="checkbox" id="support-infographic">
               <span data-i18n="settings_support_infographic"></span>
             </label>
-          </div>
-        </div>
-
-        <div class="info-section">
-          <h3 data-i18n="settings_general_title"></h3>
-          <div style="margin: 10px 0;">
-            <label for="frontmatter-display" data-i18n="settings_frontmatter_display"></label>
-            <select id="frontmatter-display">
-              <option value="hide" selected data-i18n="settings_frontmatter_hide">Hide</option>
-              <option value="table" data-i18n="settings_frontmatter_table">Table</option>
-              <option value="raw" data-i18n="settings_frontmatter_raw">Raw (blockquote)</option>
-            </select>
-            <div class="settings-note" data-i18n="settings_frontmatter_note"></div>
-          </div>
-
-          <div style="margin: 10px 0;">
-            <label class="checkbox-label">
-              <input type="checkbox" id="docx-hr-page-break">
-              <span data-i18n="settings_docx_hr_page_break"></span>
-            </label>
-            <div class="settings-note" data-i18n="settings_docx_hr_page_break_note"></div>
-          </div>
-
-          <div style="margin: 10px 0;">
-            <label for="docx-emoji-style" data-i18n="settings_docx_emoji_style"></label>
-            <select id="docx-emoji-style">
-              <option value="system" selected data-i18n="settings_docx_emoji_style_system">System style</option>
-              <option value="windows" data-i18n="settings_docx_emoji_style_windows">Windows style</option>
-              <option value="apple" data-i18n="settings_docx_emoji_style_apple">Apple style</option>
-            </select>
-            <div class="settings-note" data-i18n="settings_docx_emoji_style_note"></div>
-          </div>
-
-          <div style="margin: 10px 0;">
-            <label for="max-cache-items" data-i18n="settings_max_cache_label"></label>
-            <select id="max-cache-items">
-              <option value="100">100</option>
-              <option value="200">200</option>
-              <option value="500">500</option>
-              <option value="1000">1000</option>
-              <option value="2000">2000</option>
-              <option value="5000">5000</option>
-            </select>
           </div>
         </div>
       </div>

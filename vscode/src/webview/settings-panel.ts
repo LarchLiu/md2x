@@ -122,11 +122,14 @@ export function createSettingsPanel(options: SettingsPanelOptions): SettingsPane
           <option value="auto" data-i18n="settings_language_auto">${Localization.translate('settings_language_auto')}</option>
         </select>
       </div>
+      <div class="vscode-settings-divider"></div>
       <div class="vscode-settings-group">
-        <label class="vscode-settings-checkbox">
-          <input type="checkbox" data-setting="docxHrPageBreak" ${docxHrAsPageBreak ? 'checked' : ''}>
-          <span data-i18n="settings_docx_hr_page_break">${Localization.translate('settings_docx_hr_page_break')}</span>
-        </label>
+        <label class="vscode-settings-label" data-i18n="settings_frontmatter_display">${Localization.translate('settings_frontmatter_display')}</label>
+        <select class="vscode-settings-select" data-setting="frontmatterDisplay">
+          <option value="hide" ${frontmatterDisplay === 'hide' ? 'selected' : ''} data-i18n="settings_frontmatter_hide">${Localization.translate('settings_frontmatter_hide')}</option>
+          <option value="table" ${frontmatterDisplay === 'table' ? 'selected' : ''} data-i18n="settings_frontmatter_table">${Localization.translate('settings_frontmatter_table')}</option>
+          <option value="raw" ${frontmatterDisplay === 'raw' ? 'selected' : ''} data-i18n="settings_frontmatter_raw">${Localization.translate('settings_frontmatter_raw')}</option>
+        </select>
       </div>
       <div class="vscode-settings-group">
         <label class="vscode-settings-label" data-i18n="settings_docx_emoji_style">${Localization.translate('settings_docx_emoji_style')}</label>
@@ -137,12 +140,10 @@ export function createSettingsPanel(options: SettingsPanelOptions): SettingsPane
         </select>
       </div>
       <div class="vscode-settings-group">
-        <label class="vscode-settings-label" data-i18n="settings_frontmatter_display">${Localization.translate('settings_frontmatter_display')}</label>
-        <select class="vscode-settings-select" data-setting="frontmatterDisplay">
-          <option value="hide" ${frontmatterDisplay === 'hide' ? 'selected' : ''} data-i18n="settings_frontmatter_hide">${Localization.translate('settings_frontmatter_hide')}</option>
-          <option value="table" ${frontmatterDisplay === 'table' ? 'selected' : ''} data-i18n="settings_frontmatter_table">${Localization.translate('settings_frontmatter_table')}</option>
-          <option value="raw" ${frontmatterDisplay === 'raw' ? 'selected' : ''} data-i18n="settings_frontmatter_raw">${Localization.translate('settings_frontmatter_raw')}</option>
-        </select>
+        <label class="vscode-settings-checkbox">
+          <input type="checkbox" data-setting="docxHrPageBreak" ${docxHrAsPageBreak ? 'checked' : ''}>
+          <span data-i18n="settings_docx_hr_page_break">${Localization.translate('settings_docx_hr_page_break')}</span>
+        </label>
       </div>
       <div class="vscode-settings-divider"></div>
       <div class="vscode-settings-group">

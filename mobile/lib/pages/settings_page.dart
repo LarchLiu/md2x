@@ -103,38 +103,6 @@ class _SettingsPageState extends State<SettingsPage> {
 
           // Display section
           _SectionHeader(title: localization.t('settings_general_title')),
-          _FontSizeTile(
-            fontSize: settingsService.fontSize,
-            onChanged: (size) {
-              setState(() {
-                settingsService.fontSize = size;
-              });
-              _applyFontSize(size);
-            },
-          ),
-          _SwitchTile(
-            title: localization.t('settings_docx_hr_page_break'),
-            subtitle: localization.t('settings_docx_hr_page_break_note'),
-            value: settingsService.hrPageBreak,
-            onChanged: (value) {
-              setState(() {
-                settingsService.hrPageBreak = value;
-              });
-              // Settings are read via platform storage abstraction when exporting
-            },
-          ),          GFListTile(
-            avatar: GFAvatar(
-              backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-              child: Icon(
-                Icons.emoji_emotions_outlined,
-                color: Theme.of(context).colorScheme.onPrimaryContainer,
-              ),
-            ),
-            titleText: localization.t('settings_docx_emoji_style'),
-            subTitleText: _getEmojiStyleDisplayName(),
-            icon: const Icon(Icons.chevron_right),
-            onTap: _pickEmojiStyle,
-          ),
           GFListTile(
             avatar: GFAvatar(
               backgroundColor: Theme.of(context).colorScheme.primaryContainer,
@@ -147,6 +115,39 @@ class _SettingsPageState extends State<SettingsPage> {
             subTitleText: _getFrontmatterDisplayName(),
             icon: const Icon(Icons.chevron_right),
             onTap: _pickFrontmatterDisplay,
+          ),
+          GFListTile(
+            avatar: GFAvatar(
+              backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+              child: Icon(
+                Icons.emoji_emotions_outlined,
+                color: Theme.of(context).colorScheme.onPrimaryContainer,
+              ),
+            ),
+            titleText: localization.t('settings_docx_emoji_style'),
+            subTitleText: _getEmojiStyleDisplayName(),
+            icon: const Icon(Icons.chevron_right),
+            onTap: _pickEmojiStyle,
+          ),
+          _SwitchTile(
+            title: localization.t('settings_docx_hr_page_break'),
+            subtitle: localization.t('settings_docx_hr_page_break_note'),
+            value: settingsService.hrPageBreak,
+            onChanged: (value) {
+              setState(() {
+                settingsService.hrPageBreak = value;
+              });
+              // Settings are read via platform storage abstraction when exporting
+            },
+          ),
+          _FontSizeTile(
+            fontSize: settingsService.fontSize,
+            onChanged: (size) {
+              setState(() {
+                settingsService.fontSize = size;
+              });
+              _applyFontSize(size);
+            },
           ),
           const Divider(),
           GFListTile(
