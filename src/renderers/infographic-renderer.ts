@@ -55,14 +55,43 @@ export class InfographicRenderer extends BaseRenderer {
     // Create a temporary container
     const container = this.createContainer();
     
+    // Check if hand-drawn style should be applied
+    const isHandDrawn = themeConfig?.diagramStyle === 'handDrawn';
+    
     try {
-      // Create Infographic instance
-      const infographic = new Infographic({
+      // Build Infographic options
+      const infographicOptions: {
+        container: HTMLElement;
+        width: number;
+        height: number;
+        padding: number;
+        themeConfig?: {
+          stylize: {
+            type: 'rough';
+            roughness: number;
+            bowing: number;
+          };
+        };
+      } = {
         container: container,
         width: 900,
         height: 600,
         padding: 24,
-      });
+      };
+
+      // Add rough stylize config for hand-drawn style
+      if (isHandDrawn) {
+        infographicOptions.themeConfig = {
+          stylize: {
+            type: 'rough',
+            roughness: 0.5,
+            bowing: 0.5,
+          },
+        };
+      }
+
+      // Create Infographic instance
+      const infographic = new Infographic(infographicOptions);
 
       // Wait for rendering to complete using the 'rendered' event
       await new Promise<void>((resolve, reject) => {
