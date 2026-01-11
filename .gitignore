@@ -4,6 +4,7 @@
 .vscode/
 .github/
 .shared/
+.claude/
 temp/
 
 # Local i18n update config (developer-specific)
