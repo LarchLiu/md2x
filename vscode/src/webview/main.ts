@@ -304,7 +304,7 @@ function handleSetZoom(payload: SetZoomPayload): void {
   if (oldZoom === currentZoomLevel) return;
   
   // Lock scroll position before zoom change
-  scrollSyncController?.lock();
+  // No scroll lock needed in simplified scroll controller.
   
   const container = document.getElementById('markdown-content');
   if (container) {

@@ -12,11 +12,30 @@ import UIKit
   ) -> Bool {
     GeneratedPluginRegistrant.register(with: self)
     
-    // Set up method channel for file communication
-    let controller = window?.rootViewController as! FlutterViewController
+    // Check if app was launched with a file URL
+    if let url = launchOptions?[.url] as? URL {
+      pendingFileURL = url
+    }
+    
+    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+  
+  // Set up method channel using FlutterPluginRegistry API (called after engine is ready)
+  override func registrar(forPlugin pluginKey: String) -> FlutterPluginRegistrar? {
+    let registrar = super.registrar(forPlugin: pluginKey)
+    
+    // Initialize file channel on first plugin registration if not yet set up
+    if fileChannel == nil, let registrar = registrar {
+      setupMethodChannel(with: registrar.messenger())
+    }
+    
+    return registrar
+  }
+  
+  private func setupMethodChannel(with messenger: FlutterBinaryMessenger) {
     fileChannel = FlutterMethodChannel(
       name: "com.example.markdown_viewer_mobile/file",
-      binaryMessenger: controller.binaryMessenger
+      binaryMessenger: messenger
     )
     
     fileChannel?.setMethodCallHandler { [weak self] (call, result) in
@@ -31,13 +50,6 @@ import UIKit
         result(FlutterMethodNotImplemented)
       }
     }
-    
-    // Check if app was launched with a file URL
-    if let url = launchOptions?[.url] as? URL {
-      pendingFileURL = url
-    }
-    
-    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
   
   override func application(
