@@ -339,7 +339,10 @@ code {
 
 pre {
   padding: 16px;
-  overflow: auto;
+  /* PDFs can't scroll horizontally; wrap long lines instead of clipping. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   font-size: 85%;
   line-height: 1.45;
   background-color: #f6f8fa;
@@ -354,6 +357,10 @@ pre code {
   font-size: 100%;
   background-color: transparent;
   border: 0;
+  /* Inherit wrapping behavior from <pre> for PDFs */
+  white-space: inherit;
+  overflow-wrap: inherit;
+  word-break: inherit;
 }
 
 /* Blockquotes */
