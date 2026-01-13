@@ -11,6 +11,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { createRequire } from 'module';
 import { fileURLToPath, pathToFileURL } from 'url';
 import DocxExporter from '../../../src/exporters/docx-exporter';
 import { createBrowserRenderer, type BrowserRenderer, type PdfOptions } from './browser-renderer';
@@ -521,6 +522,29 @@ ${hrStyles}
 `;
 }
 
+function loadKatexCss(): string {
+  // `rehype-katex` outputs KaTeX HTML that requires KaTeX CSS.
+  // Without it, the MathML/annotation subtree becomes visible in print/PDF and looks like duplicated "source".
+  const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+  const bundledKatexCssPath = path.join(moduleDir, 'vendor', 'katex', 'katex.min.css');
+
+  let katexCssPath = bundledKatexCssPath;
+  if (!fs.existsSync(bundledKatexCssPath)) {
+    // Dev/monorepo fallback (root dependency).
+    const require = createRequire(import.meta.url);
+    katexCssPath = require.resolve('katex/dist/katex.min.css');
+  }
+
+  const katexDistDir = path.dirname(katexCssPath);
+  const katexFontsHref = pathToFileURL(path.join(katexDistDir, 'fonts') + path.sep).href;
+
+  let css = fs.readFileSync(katexCssPath, 'utf-8');
+  // KaTeX CSS references fonts via `url(fonts/...)`. When inlined into the PDF HTML, those URLs become relative
+  // to the temporary HTML file path, so we rewrite them to absolute file:// URLs.
+  css = css.replace(/url\((['"]?)(?:\.\/)?fonts\//g, `url($1${katexFontsHref}`);
+  return css;
+}
+
 /**
  * Node PDF Exporter Class
  */
@@ -558,6 +582,12 @@ export class NodePdfExporter {
       const html = await this.processMarkdownToHtml(markdown, browserRenderer, basePath, themeConfig);
 
       // Load CSS
+      let katexCss = '';
+      try {
+        katexCss = loadKatexCss();
+      } catch (e) {
+        console.warn('Failed to load KaTeX CSS for PDF export:', e);
+      }
       const baseCss = await loadBaseCss(options.pdfHrAsPageBreak ?? true);
       let themeCss = '';
       try {
@@ -565,7 +595,8 @@ export class NodePdfExporter {
       } catch (e) {
         console.warn('Failed to load theme CSS, using base styles only:', e);
       }
-      const css = baseCss + '\n' + themeCss;
+      // Order matters: KaTeX first, then our overrides/base, then theme.
+      const css = katexCss + '\n' + baseCss + '\n' + themeCss;
 
       // Export to PDF
       return await browserRenderer.exportToPdf(html, css, options.pdf, basePath);

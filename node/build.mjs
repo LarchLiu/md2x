@@ -58,6 +58,32 @@ function writeRootTypesEntry(outDir) {
   fs.writeFileSync(path.join(outDir, 'index.d.ts'), `export * from '${rel}';\n`, 'utf8');
 }
 
+function copyKatexAssets(outDir) {
+  // The published `md2x` package bundles JS deps, but KaTeX CSS/fonts are non-JS assets.
+  // Ship them in `dist/vendor/katex` so PDF export can render math correctly.
+  const requireFromRoot = createRequire(new URL('../package.json', import.meta.url));
+
+  let katexCssPath = '';
+  try {
+    katexCssPath = requireFromRoot.resolve('katex/dist/katex.min.css');
+  } catch {
+    console.warn('KaTeX dependency not found; PDF math rendering may be degraded.');
+    return;
+  }
+
+  const katexDistDir = path.dirname(katexCssPath);
+  const destDir = path.join(outDir, 'vendor', 'katex');
+  fs.mkdirSync(destDir, { recursive: true });
+
+  fs.copyFileSync(katexCssPath, path.join(destDir, 'katex.min.css'));
+
+  const fontsSrc = path.join(katexDistDir, 'fonts');
+  const fontsDest = path.join(destDir, 'fonts');
+  if (fs.existsSync(fontsSrc)) {
+    fs.cpSync(fontsSrc, fontsDest, { recursive: true });
+  }
+}
+
 async function build() {
   const { watch, run, runArgs } = parseArgs(process.argv.slice(2));
   const outDir = path.join(__dirname, 'dist');
@@ -67,6 +93,7 @@ async function build() {
   console.log('Building Node API types (d.ts)...');
   await runTscDeclarations();
   writeRootTypesEntry(outDir);
+  copyKatexAssets(outDir);
 
   try {
     let onCliEnd = () => {};
