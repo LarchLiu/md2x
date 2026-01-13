@@ -260,6 +260,27 @@ export async function createBrowserRenderer(): Promise<BrowserRenderer | null> {
           await pdfPage.setContent(fullHtml, { waitUntil: 'networkidle0' });
         }
 
+        // Scale down wide content to fit page width
+        // Override fixed width with 100% to fill the page
+        await pdfPage.evaluate(() => {
+          const container = document.getElementById('markdown-content');
+          if (!container) return;
+
+          // Find all direct child divs with inline width style
+          const wideDivs = container.querySelectorAll(':scope > div[style*="width"]');
+          wideDivs.forEach((div) => {
+            const el = div as HTMLElement;
+            // Check if element has a fixed pixel width
+            const widthMatch = el.style.width?.match(/^(\d+)px$/);
+            if (widthMatch) {
+              // Replace fixed width with 100% to fill container
+              el.style.width = '100%';
+              el.style.maxWidth = '100%';
+              el.style.boxSizing = 'border-box';
+            }
+          });
+        });
+
         // Generate PDF with options
         const pdfBuffer = await pdfPage.pdf({
           format: options.format || 'A4',
