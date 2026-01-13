@@ -226,7 +226,7 @@ async function loadThemeCss(themeId: string): Promise<string> {
 /**
  * Load base CSS styles for PDF
  */
-async function loadBaseCss(pdfHrAsPageBreak: boolean = false): Promise<string> {
+async function loadBaseCss(pdfHrAsPageBreak: boolean = true): Promise<string> {
   // Base styles for markdown rendering
   // When pdfHrAsPageBreak is true, hr elements will trigger page breaks
   const hrStyles = pdfHrAsPageBreak
@@ -549,7 +549,7 @@ export class NodePdfExporter {
       const html = await this.processMarkdownToHtml(markdown, browserRenderer, basePath, themeConfig);
 
       // Load CSS
-      const baseCss = await loadBaseCss(options.pdfHrAsPageBreak ?? false);
+      const baseCss = await loadBaseCss(options.pdfHrAsPageBreak ?? true);
       let themeCss = '';
       try {
         themeCss = await loadThemeCss(themeId);
