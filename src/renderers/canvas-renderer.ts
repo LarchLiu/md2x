@@ -7,6 +7,7 @@
 import { BaseRenderer } from './base-renderer';
 import JSONCanvas from '@trbn/jsoncanvas';
 import { applyRoughEffect, type RoughSvgOptions } from './libs/rough-svg';
+import { parseInlineMarkdown, hasInlineMarkdown } from '../utils/inline-markdown';
 import type { RendererThemeConfig, RenderResult } from '../types/index';
 
 // Color presets - softer Obsidian-style colors
@@ -183,15 +184,20 @@ export class JsonCanvasRenderer extends BaseRenderer {
     // Render rectangle
     let svg = `<rect x="${x}" y="${y}" width="${node.width}" height="${node.height}" rx="${NODE_BORDER_RADIUS}" ry="${NODE_BORDER_RADIUS}" fill="${fill}" stroke="${stroke}" stroke-width="2"/>`;
     
-    // Render text content using foreignObject for proper text wrapping (supports CJK)
+    // Render text content using foreignObject for proper text wrapping (supports CJK and markdown)
     if (node.text) {
       const padding = 10;
       const textWidth = node.width - padding * 2;
       const textHeight = node.height - padding * 2;
       
+      // Parse inline markdown if present, otherwise use escaped plain text
+      const htmlContent = hasInlineMarkdown(node.text)
+        ? parseInlineMarkdown(node.text)
+        : this.escapeXml(node.text).replace(/\n/g, '<br/>');
+      
       // Use foreignObject to embed HTML for proper text wrapping
       svg += `<foreignObject x="${x + padding}" y="${y + padding}" width="${textWidth}" height="${textHeight}">`;
-      svg += `<div xmlns="http://www.w3.org/1999/xhtml" style="font-family: ${fontFamily}; font-size: ${FONT_SIZE}px; color: #333333; line-height: ${LINE_HEIGHT}; overflow: hidden; word-wrap: break-word; white-space: pre-wrap;">${this.escapeXml(node.text)}</div>`;
+      svg += `<div xmlns="http://www.w3.org/1999/xhtml" style="font-family: ${fontFamily}; font-size: ${FONT_SIZE}px; color: #333333; line-height: ${LINE_HEIGHT}; overflow: hidden; word-wrap: break-word; white-space: pre-wrap;">${htmlContent}</div>`;
       svg += `</foreignObject>`;
     }
     
@@ -366,23 +372,78 @@ export class JsonCanvasRenderer extends BaseRenderer {
     const dx = Math.abs(end.x - start.x);
     const dy = Math.abs(end.y - start.y);
     const dist = Math.max(dx, dy);
-    // Control distance should be at least 80px, and scale with distance
-    // This ensures the curve leaves/enters nodes perpendicular to the edge
-    const controlDist = Math.max(80, dist * 0.5);
-    
-    // Control points extend from start/end in the direction of their sides
-    const cp1x = start.x + fromDir.x * controlDist;
-    const cp1y = start.y + fromDir.y * controlDist;
-    const cp2x = end.x + toDir.x * controlDist;
-    const cp2y = end.y + toDir.y * controlDist;
+    // Calculate straight line distance between start and end points
+    const straightDist = Math.sqrt(dx * dx + dy * dy);
     
     let svg = '';
     
-    // Draw the path (markers are defined in <defs>)
-    const markerEnd = (edge.toEnd === 'arrow' || edge.toEnd === undefined) ? `marker-end="url(#${markerId})"` : '';
-    const markerStart = edge.fromEnd === 'arrow' ? `marker-start="url(#${markerId}-start)"` : '';
+    // For close nodes, use straight line; for bidirectional arrows need larger threshold
+    const hasEndArrow = edge.toEnd === 'arrow' || edge.toEnd === undefined;
+    const hasStartArrow = edge.fromEnd === 'arrow';
+    const arrowCount = (hasEndArrow ? 1 : 0) + (hasStartArrow ? 1 : 0);
     
-    svg += `<path d="M${start.x},${start.y} C${cp1x},${cp1y} ${cp2x},${cp2y} ${end.x},${end.y}" fill="none" stroke="${color}" stroke-width="2" ${markerEnd} ${markerStart}/>`;
+    // Use straight line when nodes are close to avoid bezier curve looping through nodes.
+    // When controlDist=80 (minimum) but gap<27, the curve's control points extend beyond
+    // the gap, causing S-shaped curves that penetrate nodes.
+    // Threshold: 30px for all cases (slightly above observed 27px critical point)
+    const minDistanceForCurve = 30;
+    
+    if (straightDist < minDistanceForCurve) {
+      // Calculate arrow scale based on available space
+      // For single arrow: arrow can use up to 60% of distance
+      // For bidirectional: each arrow gets 40% of distance (total 80%, leaving 20% gap for line)
+      let arrowScale = 1;
+      if (arrowCount > 0) {
+        const maxArrowRatio = arrowCount >= 2 ? 0.4 : 0.6;
+        const availablePerArrow = straightDist * maxArrowRatio;
+        if (availablePerArrow < ARROW_WIDTH) {
+          arrowScale = availablePerArrow / ARROW_WIDTH;
+        }
+      }
+      
+      // Use scaled marker IDs for close nodes
+      const scaledMarkerId = `${markerId}-scaled`;
+      const markerEnd = hasEndArrow ? `marker-end="url(#${scaledMarkerId})"` : '';
+      const markerStart = hasStartArrow ? `marker-start="url(#${scaledMarkerId}-start)"` : '';
+      
+      // Generate inline scaled markers for this edge
+      const scaledW = ARROW_WIDTH * arrowScale;
+      const scaledH = ARROW_HEIGHT * arrowScale;
+      
+      let markers = '';
+      if (hasEndArrow) {
+        markers += `<defs><marker id="${scaledMarkerId}" markerWidth="${scaledW}" markerHeight="${scaledH}" refX="${scaledW}" refY="${scaledH / 2}" orient="auto" markerUnits="userSpaceOnUse">
+          <polygon points="0 0, ${scaledW} ${scaledH / 2}, 0 ${scaledH}" fill="${color}"/>
+        </marker></defs>`;
+      }
+      if (hasStartArrow) {
+        // For start arrow, refX=0 positions the tip at line start, base extends along the line
+        markers += `<defs><marker id="${scaledMarkerId}-start" markerWidth="${scaledW}" markerHeight="${scaledH}" refX="0" refY="${scaledH / 2}" orient="auto" markerUnits="userSpaceOnUse">
+          <polygon points="${scaledW} 0, 0 ${scaledH / 2}, ${scaledW} ${scaledH}" fill="${color}"/>
+        </marker></defs>`;
+      }
+      
+      // Draw a straight line between the two points with scaled arrows
+      svg += markers;
+      svg += `<line x1="${start.x}" y1="${start.y}" x2="${end.x}" y2="${end.y}" stroke="${color}" stroke-width="2" ${markerEnd} ${markerStart}/>`;
+    } else {
+      // For distant nodes, draw the curved path
+      // Control distance should be at least 80px, and scale with distance
+      // This ensures the curve leaves/enters nodes perpendicular to the edge
+      let controlDist = Math.max(80, dist * 0.5);
+      
+      // Control points extend from start/end in the direction of their sides
+      const cp1x = start.x + fromDir.x * controlDist;
+      const cp1y = start.y + fromDir.y * controlDist;
+      const cp2x = end.x + toDir.x * controlDist;
+      const cp2y = end.y + toDir.y * controlDist;
+      
+      // Draw the path (markers are defined in <defs>)
+      const markerEnd = (edge.toEnd === 'arrow' || edge.toEnd === undefined) ? `marker-end="url(#${markerId})"` : '';
+      const markerStart = edge.fromEnd === 'arrow' ? `marker-start="url(#${markerId}-start)"` : '';
+      
+      svg += `<path d="M${start.x},${start.y} C${cp1x},${cp1y} ${cp2x},${cp2y} ${end.x},${end.y}" fill="none" stroke="${color}" stroke-width="2" ${markerEnd} ${markerStart}/>`;
+    }
     
     // Edge label
     if (edge.label) {

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "__MSG_extensionName__",
-  "version": "1.4.2",
+  "version": "1.5.1",
   "default_locale": "en",
   "description": "__MSG_extensionDescription__",
   "permissions": [
@@ -10,7 +10,8 @@
     "offscreen",
     "scripting",
     "downloads",
-    "contextMenus"
+    "contextMenus",
+    "alarms"
   ],
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"

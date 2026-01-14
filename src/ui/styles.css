@@ -34,10 +34,10 @@
   --color-border: #e2e8f0;
   --color-border-hover: #cbd5e1;
   
-  /* Transitions */
-  --transition-fast: 0.15s ease-out;
-  --transition-normal: 0.25s ease-out;
-  --transition-slow: 0.35s ease-out;
+  /* Transitions - disabled for instant updates */
+  --transition-fast: 0s;
+  --transition-normal: 0s;
+  --transition-slow: 0s;
   
   /* Shadows */
   --shadow-toolbar: 0 2px 4px rgba(0, 0, 0, 0.06);
@@ -54,7 +54,6 @@ body {
   line-height: 1.6;
   color: var(--gray-700);
   background-color: var(--color-bg-body);
-  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 /* Toolbar Styles */
@@ -273,7 +272,6 @@ body.toc-hidden #markdown-wrapper {
   margin-left: 280px;
   margin-top: 50px;
   min-height: calc(100vh - 50px);
-  transition: margin-left 0.3s ease;
 }
 
 #markdown-page {
@@ -488,7 +486,6 @@ body.toc-hidden #markdown-wrapper {
 }
 
 .progress-circle-progress {
-  transition: stroke-dashoffset 0.3s ease;
   stroke: #00d4aa;
   /* Brighter cyan-green for better visibility */
 }
@@ -496,7 +493,6 @@ body.toc-hidden #markdown-wrapper {
 .download-progress-circle {
   stroke: #2563eb;
   /* Blue color for download progress */
-  transition: stroke-dashoffset 0.3s ease;
 }
 
 /* Async content placeholder */
@@ -509,7 +505,6 @@ body.toc-hidden #markdown-wrapper {
   background: #f8fafc;
   border: 2px dashed #e2e8f0;
   border-radius: 8px;
-  transition: all 0.3s ease;
 }
 
 .async-placeholder:hover {

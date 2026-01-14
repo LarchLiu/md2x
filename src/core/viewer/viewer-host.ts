@@ -52,8 +52,6 @@ export interface ViewerScrollSyncOptions {
   containerId?: string;
   /** Platform API instance */
   platform: PlatformAPI;
-  /** Debounce time for user scroll events in ms (default: 10) */
-  userScrollDebounceMs?: number;
   /**
    * Custom callback for user scroll events.
    * If not provided, defaults to saving scroll position to FileStateService.
@@ -86,7 +84,6 @@ export function createViewerScrollSync(options: ViewerScrollSyncOptions): Scroll
   const {
     containerId = 'markdown-content',
     platform,
-    userScrollDebounceMs = 10,
     onUserScroll,
   } = options;
 
@@ -105,7 +102,6 @@ export function createViewerScrollSync(options: ViewerScrollSyncOptions): Scroll
   return createScrollSyncController({
     container,
     getLineMapper: getDocument,
-    userScrollDebounceMs,
     onUserScroll: onUserScroll ?? defaultOnUserScroll,
   });
 }
@@ -194,7 +190,7 @@ export function applyZoom(options: ApplyZoomOptions): number {
   const zoomLevel = zoom / 100;
 
   // Lock scroll position before zoom change
-  scrollController?.lock();
+  // No scroll lock needed in simplified scroll controller.
 
   const container = document.getElementById(containerId);
   if (container) {

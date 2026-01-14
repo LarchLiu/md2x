@@ -8,6 +8,7 @@ import CacheStorage from '../../../src/utils/cache-storage';
 import { toSimpleCacheStats } from '../../../src/utils/cache-stats';
 import {
   getFileChangeTracker,
+  getFileCheckAlarmName,
   DEFAULT_AUTO_REFRESH_SETTINGS,
   type AutoRefreshSettings,
 } from './file-change-tracker';
@@ -473,16 +474,16 @@ async function handleStartFileTrackingEnvelope(
 /**
  * Handle STOP_FILE_TRACKING request
  */
-function handleStopFileTrackingEnvelope(
+async function handleStopFileTrackingEnvelope(
   message: { id: string; type: string; payload: unknown },
   sendResponse: (response: unknown) => void
-): void {
+): Promise<void> {
   const payload = (message.payload || {}) as Record<string, unknown>;
   const url = typeof payload.url === 'string' ? payload.url : '';
 
   if (url) {
     const tracker = getFileChangeTracker();
-    tracker.stopTracking(url);
+    await tracker.stopTracking(url);
   }
 
   sendResponseEnvelope(message.id, sendResponse, { ok: true });
@@ -491,10 +492,10 @@ function handleStopFileTrackingEnvelope(
 /**
  * Handle UPDATE_AUTO_REFRESH_SETTINGS request
  */
-function handleUpdateAutoRefreshSettingsEnvelope(
+async function handleUpdateAutoRefreshSettingsEnvelope(
   message: { id: string; type: string; payload: unknown },
   sendResponse: (response: unknown) => void
-): void {
+): Promise<void> {
   const payload = (message.payload || {}) as Partial<AutoRefreshSettings>;
   const tracker = getFileChangeTracker();
   
@@ -504,7 +505,7 @@ function handleUpdateAutoRefreshSettingsEnvelope(
     intervalMs: typeof payload.intervalMs === 'number' ? payload.intervalMs : currentSettings.intervalMs,
   };
 
-  tracker.updateSettings(newSettings);
+  await tracker.updateSettings(newSettings);
   sendResponseEnvelope(message.id, sendResponse, { ok: true, data: newSettings });
 }
 
@@ -523,16 +524,22 @@ function handleGetAutoRefreshSettingsEnvelope(
 // Clean up tracking when tab is closed
 chrome.tabs.onRemoved.addListener((tabId) => {
   const tracker = getFileChangeTracker();
-  tracker.stopTrackingByTab(tabId);
+  void tracker.stopTrackingByTab(tabId);
 });
 
-// Load auto refresh settings from storage on startup
-chrome.storage.local.get(['autoRefreshSettings'], (result) => {
-  if (result.autoRefreshSettings) {
+// Handle alarm events for file change checking
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === getFileCheckAlarmName()) {
     const tracker = getFileChangeTracker();
-    tracker.updateSettings(result.autoRefreshSettings as AutoRefreshSettings);
+    void tracker.handleAlarm();
   }
 });
+
+// Initialize file change tracker on startup (restores persisted state)
+void (async () => {
+  const tracker = getFileChangeTracker();
+  await tracker.initialize();
+})();
 
 // Upload sessions in memory
 const uploadSessions = new Map<string, UploadSession>();
@@ -741,12 +748,12 @@ chrome.runtime.onMessage.addListener((message: BackgroundMessage, sender, sendRe
   }
 
   if (isRequestEnvelope(message) && message.type === 'STOP_FILE_TRACKING') {
-    handleStopFileTrackingEnvelope(message, sendResponse);
+    void handleStopFileTrackingEnvelope(message, sendResponse);
     return true;
   }
 
   if (isRequestEnvelope(message) && message.type === 'UPDATE_AUTO_REFRESH_SETTINGS') {
-    handleUpdateAutoRefreshSettingsEnvelope(message, sendResponse);
+    void handleUpdateAutoRefreshSettingsEnvelope(message, sendResponse);
     return true;
   }
 

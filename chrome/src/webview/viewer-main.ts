@@ -198,7 +198,7 @@ export async function initializeViewerMain(options: ViewerMainOptions): Promise<
     toolbarPrintDisabledTitle,
     onBeforeZoom: () => {
       // Lock scroll position before zoom change
-      scrollSyncController?.lock();
+      // No scroll lock needed in simplified scroll controller.
     },
   });
 
