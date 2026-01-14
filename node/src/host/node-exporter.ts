@@ -34,6 +34,45 @@ export type Md2PdfOptions = {
   pdfHrAsPageBreak?: boolean;
 };
 
+export type Md2HtmlOptions = {
+  theme?: string;
+  basePath?: string;
+  /** Document title for standalone HTML output */
+  title?: string;
+  /** When true, returns a full HTML document with embedded CSS (default: true) */
+  standalone?: boolean;
+  /**
+   * Diagram rendering mode (HTML export only):
+   * - "img": pre-render diagrams and embed as data: images (best for offline)
+   * - "live": keep source blocks and render in the browser on load
+   * - "none": do not process diagrams at all (keep source code blocks)
+   */
+  diagramMode?: 'img' | 'live' | 'none';
+  /**
+   * Optional CDN overrides (URLs). Only used when `diagramMode: "live"`.
+   */
+  cdn?: Partial<{
+    mermaid: string;
+    /** Graphviz runtime (preferred): @viz-js/viz global build */
+    vizGlobal: string;
+    /** Legacy Graphviz runtime: viz.js (kept for compatibility) */
+    viz: string;
+    /** Legacy Graphviz runtime dependency: viz.js full.render.js (kept for compatibility) */
+    vizRender: string;
+    vega: string;
+    vegaLite: string;
+    vegaEmbed: string;
+    infographic: string;
+  }>;
+  /**
+   * When true, horizontal rules (---, ***, ___) will be converted to page breaks in print/PDF.
+   * Note: this hides `<hr>` visually (default: false for HTML).
+   */
+  htmlHrAsPageBreak?: boolean;
+  /** When true, emit a `<base href="file://.../">` tag so relative URLs resolve against basePath (default: true) */
+  baseTag?: boolean;
+};
+
 function ensureBase64Globals(): void {
   // Node 18+ usually has atob/btoa, but keep a safe fallback.
   if (typeof globalThis.atob !== 'function') {
@@ -73,6 +112,186 @@ function createPluginRenderer(
       return result;
     },
   };
+}
+
+function escapeHtmlText(text: string): string {
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function decodeHtmlEntities(text: string): string {
+  return text
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&#x27;/g, "'")
+    .replace(/&#x2F;/g, '/')
+    .replace(/&#x3C;/gi, '<')
+    .replace(/&#x3E;/gi, '>')
+    .replace(/&#x26;/gi, '&')
+    .replace(/&#60;/g, '<')
+    .replace(/&#62;/g, '>')
+    .replace(/&#38;/g, '&');
+}
+
+async function processDiagrams(
+  html: string,
+  browserRenderer: BrowserRenderer | null,
+  basePath: string,
+  themeConfig: RendererThemeConfig,
+  mode: 'img' | 'live' | 'none'
+): Promise<string> {
+  if (mode !== 'img') return html;
+  if (!browserRenderer) return html;
+
+  // Build supported languages from plugin system
+  // Only include plugins that handle 'code' nodes (not 'html' or 'image' only)
+  const pluginLangs = plugins
+    .filter(p => p.nodeSelector.includes('code'))
+    .map(p => p.language)
+    .filter((lang): lang is string => lang !== null);
+
+  // Add common aliases that plugins support via extractContent override
+  const aliases = ['graphviz', 'gv', 'vegalite'];
+  const supportedLangs = [...pluginLangs, ...aliases].join('|');
+
+  if (!supportedLangs) return html;
+
+  // Match code blocks with diagram languages
+  // rehype-highlight adds "hljs" class, so we need to match both formats:
+  // - class="language-mermaid" (without highlight)
+  // - class="hljs language-mermaid" (with highlight)
+  // Note: \\s\\S must be double-escaped in template strings for RegExp constructor
+  const codeBlockRegex = new RegExp(
+    `<pre><code class="(?:hljs )?language-(${supportedLangs})">([\\s\\S]*?)<\\/code><\\/pre>`,
+    'gi'
+  );
+
+  const matches = [...html.matchAll(codeBlockRegex)];
+
+  for (const match of matches) {
+    const [fullMatch, lang, code] = match;
+    const decodedCode = decodeHtmlEntities(code);
+
+    // Normalize language aliases to renderer types
+    let renderType = lang.toLowerCase();
+    if (renderType === 'graphviz' || renderType === 'gv') renderType = 'dot';
+    if (renderType === 'vegalite') renderType = 'vega-lite';
+
+    try {
+      const result = await browserRenderer.render(renderType, decodedCode, basePath, themeConfig);
+      if (result && result.base64) {
+        const imgTag = `<div class="md2x-diagram"><img class="md2x-diagram" src="data:image/${result.format};base64,${result.base64}" alt="${escapeHtmlText(
+          `${lang} diagram`
+        )}" style="max-width: 100%;" /></div>`;
+        html = html.replace(fullMatch, imgTag);
+      }
+    } catch (e) {
+      console.warn(`Failed to render ${lang} diagram:`, e);
+      // Keep original code block on error
+    }
+  }
+
+  return html;
+}
+
+async function markdownToHtmlFragment(
+  markdown: string,
+  browserRenderer: BrowserRenderer | null,
+  basePath: string,
+  themeConfig: RendererThemeConfig,
+  diagramMode: 'img' | 'live' | 'none'
+): Promise<string> {
+  // Import markdown processor dynamically
+  const { unified } = await import('unified');
+  const remarkParse = (await import('remark-parse')).default;
+  const remarkGfm = (await import('remark-gfm')).default;
+  const remarkMath = (await import('remark-math')).default;
+  const remarkSuperSub = (await import('../../../src/plugins/remark-super-sub')).default;
+  const remarkRehype = (await import('remark-rehype')).default;
+  const rehypeKatex = (await import('rehype-katex')).default;
+  const rehypeHighlight = (await import('rehype-highlight')).default;
+  const rehypeStringify = (await import('rehype-stringify')).default;
+  const { visit } = await import('unist-util-visit');
+
+  // Rehype plugin to mark block-level images
+  // An image is block-level only if:
+  // 1. It's the only image in the paragraph
+  // 2. There's no substantial text content (only labels like "**text:**" before the image are OK)
+  function rehypeBlockImages() {
+    return (tree: any) => {
+      visit(tree, 'element', (node: any) => {
+        if (node.tagName !== 'p') return;
+
+        const children = node.children || [];
+        if (children.length === 0) return;
+
+        // Count images and check for text content
+        let imageCount = 0;
+        let imageIndex = -1;
+        let hasSubstantialTextAfterImage = false;
+        let foundImage = false;
+
+        for (let i = 0; i < children.length; i++) {
+          const child = children[i];
+
+          if (child.type === 'element' && child.tagName === 'img') {
+            imageCount++;
+            imageIndex = i;
+            foundImage = true;
+          } else if (foundImage) {
+            // Check for text after the image
+            if (child.type === 'text' && child.value.trim() !== '') {
+              hasSubstantialTextAfterImage = true;
+            } else if (child.type === 'element' && child.tagName !== 'br') {
+              // Any element after image (except br) means it's inline
+              hasSubstantialTextAfterImage = true;
+            }
+          }
+        }
+
+        // Only mark as block-image if:
+        // - Exactly one image in the paragraph
+        // - No substantial text after the image
+        if (imageCount === 1 && !hasSubstantialTextAfterImage && imageIndex >= 0) {
+          const img = children[imageIndex];
+          img.properties = img.properties || {};
+          const existingClass = img.properties.className || [];
+          img.properties.className = Array.isArray(existingClass)
+            ? [...existingClass, 'block-image']
+            : [existingClass, 'block-image'];
+        }
+      });
+    };
+  }
+
+  // Create processor
+  const processor = unified()
+    .use(remarkParse)
+    // Keep consistent with extension/webview + DOCX: reserve single `~text~` for subscript.
+    .use(remarkGfm, { singleTilde: false })
+    .use(remarkMath)
+    .use(remarkSuperSub)
+    .use(remarkRehype, { allowDangerousHtml: true })
+    .use(rehypeKatex)
+    .use(rehypeHighlight)
+    .use(rehypeBlockImages)
+    .use(rehypeStringify, { allowDangerousHtml: true });
+
+  // Process markdown
+  const file = await processor.process(markdown);
+  let html = String(file);
+
+  // Process diagrams (mermaid, graphviz, vega-lite, etc.)
+  html = await processDiagrams(html, browserRenderer, basePath, themeConfig, diagramMode);
+
+  return html;
 }
 
 /**
@@ -417,6 +636,31 @@ img {
   page-break-inside: avoid;
 }
 
+.md2x-diagram .md2x-diagram-inner {
+  display: inline-block;
+  max-width: 100%;
+  text-align: left;
+}
+
+.md2x-diagram .md2x-diagram-mount {
+  display: inline-block;
+  max-width: 100%;
+}
+
+.md2x-diagram .vega-embed {
+  display: inline-block;
+  max-width: 100%;
+  width: auto !important;
+}
+
+.md2x-diagram .md2x-diagram-inner svg,
+.md2x-diagram .md2x-diagram-inner > svg {
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
+  max-width: 100%;
+}
+
 .md2x-diagram img,
 img.md2x-diagram {
   display: block;
@@ -612,8 +856,8 @@ export class NodePdfExporter {
 
       const themeConfig = await loadRendererThemeConfig(themeId);
 
-      // Process markdown to HTML
-      const html = await this.processMarkdownToHtml(markdown, browserRenderer, basePath, themeConfig);
+      // Process markdown to HTML (with diagram rendering)
+      const html = await markdownToHtmlFragment(markdown, browserRenderer, basePath, themeConfig, 'img');
 
       // Load CSS
       let katexCss = '';
@@ -667,176 +911,454 @@ export class NodePdfExporter {
 
     fs.writeFileSync(outputPath, buffer);
   }
+}
 
+/**
+ * Node HTML Exporter Class
+ */
+export class NodeHtmlExporter {
   /**
-   * Process markdown to HTML with diagram rendering
+   * Export markdown to standalone HTML string (default) or HTML fragment.
    */
-  private async processMarkdownToHtml(
-    markdown: string,
-    browserRenderer: BrowserRenderer,
-    basePath: string,
-    themeConfig: RendererThemeConfig
-  ): Promise<string> {
-    // Import markdown processor dynamically
-    const { unified } = await import('unified');
-    const remarkParse = (await import('remark-parse')).default;
-    const remarkGfm = (await import('remark-gfm')).default;
-    const remarkMath = (await import('remark-math')).default;
-    const remarkSuperSub = (await import('../../../src/plugins/remark-super-sub')).default;
-    const remarkRehype = (await import('remark-rehype')).default;
-    const rehypeKatex = (await import('rehype-katex')).default;
-    const rehypeHighlight = (await import('rehype-highlight')).default;
-    const rehypeStringify = (await import('rehype-stringify')).default;
-    const { visit } = await import('unist-util-visit');
+  async exportToString(markdown: string, options: Md2HtmlOptions = {}): Promise<string> {
+    ensureBase64Globals();
 
-    // Rehype plugin to mark block-level images
-    // An image is block-level only if:
-    // 1. It's the only image in the paragraph
-    // 2. There's no substantial text content (only labels like "**text:**" before the image are OK)
-    function rehypeBlockImages() {
-      return (tree: any) => {
-        visit(tree, 'element', (node: any) => {
-          if (node.tagName !== 'p') return;
+    const themeId = options.theme || 'default';
+    const basePath = options.basePath || process.cwd();
+    const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+    const diagramMode: 'img' | 'live' | 'none' = options.diagramMode || 'live';
 
-          const children = node.children || [];
-          if (children.length === 0) return;
+    const { platform } = createNodePlatform({
+      moduleDir,
+      selectedThemeId: themeId,
+      output: { kind: 'buffer' },
+    });
 
-          // Count images and check for text content
-          let imageCount = 0;
-          let imageIndex = -1;
-          let hasSubstantialTextAfterImage = false;
-          let foundImage = false;
+    const previousPlatform = (globalThis as any).platform;
+    (globalThis as any).platform = platform;
 
-          for (let i = 0; i < children.length; i++) {
-            const child = children[i];
+    let browserRenderer: BrowserRenderer | null = null;
+    try {
+      const themeConfig = await loadRendererThemeConfig(themeId);
 
-            if (child.type === 'element' && child.tagName === 'img') {
-              imageCount++;
-              imageIndex = i;
-              foundImage = true;
-            } else if (foundImage) {
-              // Check for text after the image
-              if (child.type === 'text' && child.value.trim() !== '') {
-                hasSubstantialTextAfterImage = true;
-              } else if (child.type === 'element' && child.tagName !== 'br') {
-                // Any element after image (except br) means it's inline
-                hasSubstantialTextAfterImage = true;
-              }
-            }
-          }
+      if (diagramMode === 'img') {
+        browserRenderer = await createBrowserRenderer();
+        if (browserRenderer) {
+          await browserRenderer.initialize();
+        }
+      }
 
-          // Only mark as block-image if:
-          // - Exactly one image in the paragraph
-          // - No substantial text after the image
-          if (imageCount === 1 && !hasSubstantialTextAfterImage && imageIndex >= 0) {
-            const img = children[imageIndex];
-            img.properties = img.properties || {};
-            const existingClass = img.properties.className || [];
-            img.properties.className = Array.isArray(existingClass)
-              ? [...existingClass, 'block-image']
-              : [existingClass, 'block-image'];
-          }
-        });
-      };
+      const fragment = await markdownToHtmlFragment(markdown, browserRenderer, basePath, themeConfig, diagramMode);
+
+      const standalone = options.standalone !== false;
+      if (!standalone) return fragment;
+
+      let katexCss = '';
+      try {
+        katexCss = loadKatexCss();
+      } catch (e) {
+        console.warn('Failed to load KaTeX CSS for HTML export:', e);
+      }
+
+      const baseCss = await loadBaseCss(options.htmlHrAsPageBreak ?? false);
+
+      let themeCss = '';
+      try {
+        themeCss = await loadThemeCss(themeId);
+      } catch (e) {
+        console.warn('Failed to load theme CSS for HTML export, using base styles only:', e);
+      }
+
+      const css = katexCss + '\n' + baseCss + '\n' + themeCss;
+
+      const title = options.title || 'Document';
+      const shouldEmitBase = options.baseTag !== false && !!basePath;
+      const baseHref = shouldEmitBase ? pathToFileURL(basePath + path.sep).href : '';
+      const baseTag = baseHref ? `  <base href="${escapeHtmlText(baseHref)}" />\n` : '';
+
+      const cdnBaseDefaults = {
+        mermaid: 'https://cdn.jsdelivr.net/npm/mermaid@11.12.2/dist/mermaid.min.js',
+        // Preferred: modern Graphviz WASM build (provides window.Viz.instance()).
+        vizGlobal: 'https://cdn.jsdelivr.net/npm/@viz-js/viz@3.24.0/dist/viz-global.js',
+        // Legacy fallback (provides window.Viz constructor).
+        viz: 'https://cdn.jsdelivr.net/npm/viz.js@2.1.2/viz.js',
+        vizRender: 'https://cdn.jsdelivr.net/npm/viz.js@2.1.2/full.render.js',
+        infographic: 'https://cdn.jsdelivr.net/npm/@antv/infographic@0.2.7/dist/infographic.min.js',
+      } as const;
+
+      const cdnVegaDefaultsByMajor = {
+        // Vega-Lite v5 is typically used with Vega v5 + Vega-Embed v6.
+        5: {
+          vega: 'https://cdn.jsdelivr.net/npm/vega@5/build/vega.min.js',
+          vegaLite: 'https://cdn.jsdelivr.net/npm/vega-lite@5/build/vega-lite.min.js',
+          vegaEmbed: 'https://cdn.jsdelivr.net/npm/vega-embed@6/build/vega-embed.min.js',
+        },
+        // Vega-Lite v6 is typically used with Vega v6 + Vega-Embed v7.
+        6: {
+          vega: 'https://cdn.jsdelivr.net/npm/vega@6/build/vega.min.js',
+          vegaLite: 'https://cdn.jsdelivr.net/npm/vega-lite@6/build/vega-lite.min.js',
+          vegaEmbed: 'https://cdn.jsdelivr.net/npm/vega-embed@7/build/vega-embed.min.js',
+        },
+      } as const;
+
+      const cdnOverrides = options.cdn ?? {};
+
+      const liveBootstrap =
+        diagramMode !== 'live'
+          ? ''
+          : `
+  <!-- md2x live diagram renderer (CDN) -->
+  <script>
+  (function () {
+    const themeConfig = ${JSON.stringify(themeConfig ?? null)};
+    const baseHref = ${JSON.stringify(baseHref)};
+    const cdnOverrides = ${JSON.stringify(cdnOverrides)};
+    const cdnBaseDefaults = ${JSON.stringify(cdnBaseDefaults)};
+    const cdnVegaDefaultsByMajor = ${JSON.stringify(cdnVegaDefaultsByMajor)};
+
+    function loadScript(src) {
+      return new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = src;
+        s.async = false;
+        s.onload = () => resolve();
+        s.onerror = () => reject(new Error('Failed to load script: ' + src));
+        document.head.appendChild(s);
+      });
     }
 
-    // Create processor
-    const processor = unified()
-      .use(remarkParse)
-      // Keep consistent with extension/webview + DOCX: reserve single `~text~` for subscript.
-      .use(remarkGfm, { singleTilde: false })
-      .use(remarkMath)
-      .use(remarkSuperSub)
-      .use(remarkRehype, { allowDangerousHtml: true })
-      .use(rehypeKatex)
-      .use(rehypeHighlight)
-      .use(rehypeBlockImages)
-      .use(rehypeStringify, { allowDangerousHtml: true });
+    function getLangFromCodeClass(codeEl) {
+      const cls = (codeEl && codeEl.className) ? String(codeEl.className) : '';
+      const m = cls.match(/\\blanguage-([a-z0-9-]+)\\b/i);
+      return m ? m[1] : '';
+    }
 
-    // Process markdown
-    const file = await processor.process(markdown);
-    let html = String(file);
+    function normalizeLang(lang) {
+      const l = String(lang || '').toLowerCase();
+      if (l === 'graphviz' || l === 'gv') return 'dot';
+      if (l === 'vegalite') return 'vega-lite';
+      return l;
+    }
 
-    // Process diagrams (mermaid, graphviz, vega-lite, etc.)
-    html = await this.processDiagrams(html, browserRenderer, basePath, themeConfig);
+    function guessVegaLiteSchemaMajorFromSpec(spec) {
+      if (!spec || typeof spec !== 'object') return null;
+      const schema = spec.$schema;
+      if (typeof schema !== 'string') return null;
+      const m = schema.match(/\\/vega-lite\\/v(\\d+)(?:\\.|\\.json|$)/i) || schema.match(/\\/v(\\d+)\\.json$/i);
+      if (!m) return null;
+      const major = parseInt(m[1], 10);
+      return Number.isFinite(major) ? major : null;
+    }
 
-    return html;
-  }
+    function guessVegaLiteSchemaMajorFromText(text) {
+      const t = String(text || '');
+      const m = t.match(/\\/vega-lite\\/v(\\d+)(?:\\.|\\.json|$)/i) || t.match(/\\/v(\\d+)\\.json$/i);
+      if (!m) return null;
+      const major = parseInt(m[1], 10);
+      return Number.isFinite(major) ? major : null;
+    }
 
-  /**
-   * Process diagram code blocks and replace with rendered images
-   */
-  private async processDiagrams(
-    html: string,
-    browserRenderer: BrowserRenderer,
-    basePath: string,
-    themeConfig: RendererThemeConfig
-  ): Promise<string> {
-    // Build supported languages from plugin system
-    // Only include plugins that handle 'code' nodes (not 'html' or 'image' only)
-    const pluginLangs = plugins
-      .filter(p => p.nodeSelector.includes('code'))
-      .map(p => p.language)
-      .filter((lang): lang is string => lang !== null);
+    function detectVegaLiteMajorFromDocument() {
+      // Scan vega-lite blocks and pick a major version based on $schema.
+      const blocks = Array.from(document.querySelectorAll('pre > code'));
+      let detected = null;
+      for (const codeEl of blocks) {
+        const langRaw = getLangFromCodeClass(codeEl);
+        const lang = normalizeLang(langRaw);
+        if (lang !== 'vega-lite') continue;
 
-    // Add common aliases that plugins support via extractContent override
-    const aliases = ['graphviz', 'gv', 'vegalite'];
-    const supportedLangs = [...pluginLangs, ...aliases].join('|');
+        const text = (codeEl && codeEl.textContent) ? codeEl.textContent : '';
+        if (!text.trim()) continue;
 
-    // Match code blocks with diagram languages
-    // rehype-highlight adds "hljs" class, so we need to match both formats:
-    // - class="language-mermaid" (without highlight)
-    // - class="hljs language-mermaid" (with highlight)
-    // Note: \\s\\S must be double-escaped in template strings for RegExp constructor
-    const codeBlockRegex = new RegExp(
-      `<pre><code class="(?:hljs )?language-(${supportedLangs})">([\\s\\S]*?)<\\/code><\\/pre>`,
-      'gi'
-    );
-
-    const matches = [...html.matchAll(codeBlockRegex)];
-
-    for (const match of matches) {
-      const [fullMatch, lang, code] = match;
-      const decodedCode = this.decodeHtmlEntities(code);
-
-      // Normalize language aliases to renderer types
-      let renderType = lang.toLowerCase();
-      if (renderType === 'graphviz' || renderType === 'gv') renderType = 'dot';
-      if (renderType === 'vegalite') renderType = 'vega-lite';
-
-      try {
-        const result = await browserRenderer.render(renderType, decodedCode, basePath, themeConfig);
-        if (result && result.base64) {
-          const imgTag = `<div class="md2x-diagram"><img class="md2x-diagram" src="data:image/${result.format};base64,${result.base64}" alt="${lang} diagram" style="max-width: 100%;" /></div>`;
-          html = html.replace(fullMatch, imgTag);
+        // Prefer a regex scan first so we can still detect schema versions for
+        // code blocks that aren't strictly valid JSON (e.g. trailing commas).
+        const majorFromText = guessVegaLiteSchemaMajorFromText(text);
+        if (majorFromText && (majorFromText === 5 || majorFromText === 6)) {
+          detected = majorFromText;
+          if (majorFromText === 6) return 6;
+          continue;
         }
-      } catch (e) {
-        console.warn(`Failed to render ${lang} diagram:`, e);
-        // Keep original code block on error
+
+        try {
+          const spec = JSON.parse(text);
+          const major = guessVegaLiteSchemaMajorFromSpec(spec);
+          if (major && (major === 5 || major === 6)) {
+            detected = major;
+            // If any block is v6, prefer v6. Otherwise keep v5.
+            if (major === 6) return 6;
+          }
+        } catch {
+          // ignore parse errors
+        }
+      }
+      return detected || 6;
+    }
+
+    async function ensureCdnLibsLoaded() {
+      const major = detectVegaLiteMajorFromDocument();
+      const vegaDefaults = cdnVegaDefaultsByMajor[String(major)] || cdnVegaDefaultsByMajor['6'];
+      const cdn = Object.assign({}, cdnBaseDefaults, vegaDefaults, cdnOverrides || {});
+
+      // Load order matters.
+      await loadScript(cdn.mermaid);
+      if (cdn.vizGlobal) {
+        await loadScript(cdn.vizGlobal);
+      } else {
+        await loadScript(cdn.viz);
+        await loadScript(cdn.vizRender);
+      }
+      await loadScript(cdn.vega);
+      await loadScript(cdn.vegaLite);
+      await loadScript(cdn.vegaEmbed);
+      await loadScript(cdn.infographic);
+    }
+
+    function replacePreWithContainer(preEl, kind) {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'md2x-diagram';
+      wrapper.setAttribute('data-md2x-diagram-kind', kind);
+      wrapper.style.maxWidth = '100%';
+      const inner = document.createElement('div');
+      inner.className = 'md2x-diagram-inner';
+      inner.style.display = 'inline-block';
+      inner.style.maxWidth = '100%';
+      const mount = document.createElement('div');
+      mount.className = 'md2x-diagram-mount';
+      mount.style.maxWidth = '100%';
+      inner.appendChild(mount);
+      wrapper.appendChild(inner);
+      preEl.replaceWith(wrapper);
+      return mount;
+    }
+
+    function getText(codeEl) {
+      return (codeEl && codeEl.textContent) ? codeEl.textContent : '';
+    }
+
+    async function renderMermaid(code, mount, id) {
+      const mermaid = window.mermaid;
+      if (!mermaid) return;
+      mermaid.initialize({
+        startOnLoad: false,
+        theme: 'default',
+        securityLevel: 'loose',
+        fontFamily: themeConfig && themeConfig.fontFamily ? themeConfig.fontFamily : undefined,
+      });
+      const out = await mermaid.render('md2x-mermaid-' + id, code);
+      mount.innerHTML = out && out.svg ? out.svg : '';
+    }
+
+    async function renderDot(code, mount) {
+      const VizGlobal = window.Viz;
+      // Preferred: @viz-js/viz global build
+      if (VizGlobal && typeof VizGlobal.instance === 'function') {
+        const viz = await VizGlobal.instance();
+        const svgEl = viz.renderSVGElement(code, { graphAttributes: { bgcolor: 'transparent' } });
+        mount.appendChild(svgEl);
+        return;
+      }
+
+      // Legacy: viz.js
+      if (typeof window.Viz === 'function') {
+        const viz = new window.Viz();
+        const svgEl = await viz.renderSVGElement(code);
+        mount.appendChild(svgEl);
       }
     }
 
-    return html;
+    function applyDefaultVegaLiteSort(spec) {
+      // If users mark a field as ordinal, a common expectation is "use the data order"
+      // (e.g. '1月'...'12月'). Vega-Lite defaults to sorting discrete domains, which can
+      // produce surprising orders for stringified numbers. We only change behavior
+      // when the author hasn't specified an explicit sort.
+      const applyOne = (s) => {
+        if (!s || typeof s !== 'object') return;
+        const enc = s.encoding;
+        const x = enc && enc.x;
+        if (x && typeof x === 'object' && x.type === 'ordinal' && !('sort' in x)) {
+          x.sort = null;
+        }
+      };
+
+      const walk = (s) => {
+        if (!s || typeof s !== 'object') return;
+        applyOne(s);
+
+        const arrays = ['layer', 'hconcat', 'vconcat', 'concat'];
+        for (const key of arrays) {
+          const childArr = s[key];
+          if (Array.isArray(childArr)) {
+            for (const child of childArr) walk(child);
+          }
+        }
+        if (s.spec) walk(s.spec);
+      };
+
+      walk(spec);
+    }
+
+    async function renderVegaLite(code, mount) {
+      const vegaEmbed = window.vegaEmbed;
+      if (typeof vegaEmbed !== 'function') return;
+      let spec;
+      try {
+        spec = JSON.parse(code);
+      } catch {
+        mount.textContent = 'Invalid Vega-Lite JSON.';
+        return;
+      }
+      applyDefaultVegaLiteSort(spec);
+      await vegaEmbed(mount, spec, {
+        actions: false,
+        renderer: 'svg',
+        defaultStyle: true,
+        logLevel: (window.vega && window.vega.Warn) ? window.vega.Warn : undefined,
+      });
+    }
+
+    async function renderInfographic(code, mount) {
+      const lib = window.AntVInfographic;
+      if (!lib || !lib.Infographic) return;
+
+      try {
+        if (typeof lib.setDefaultFont === 'function') {
+          const ff = themeConfig && themeConfig.fontFamily ? themeConfig.fontFamily : undefined;
+          if (ff) lib.setDefaultFont(ff);
+        }
+      } catch {}
+
+      const opts = {
+        container: mount,
+        width: 900,
+        height: 600,
+        padding: 24,
+      };
+
+      if (themeConfig && themeConfig.diagramStyle === 'handDrawn') {
+        opts.themeConfig = { stylize: { type: 'rough', roughness: 0.5, bowing: 0.5 } };
+      }
+
+      const ig = new lib.Infographic(opts);
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('Infographic render timeout after 10s')), 10000);
+        ig.on && ig.on('rendered', () => { clearTimeout(timeout); resolve(); });
+        ig.on && ig.on('error', (err) => { clearTimeout(timeout); reject(err); });
+        try {
+          ig.render(code);
+        } catch (e) {
+          clearTimeout(timeout);
+          reject(e);
+        }
+      }).catch(() => {
+        // keep container content on errors
+      });
+    }
+
+    async function main() {
+      // Best-effort base href: some renderers may load assets relative to document.
+      try {
+        if (baseHref) {
+          let base = document.querySelector('base');
+          if (!base) {
+            base = document.createElement('base');
+            document.head.appendChild(base);
+          }
+          base.href = baseHref;
+        }
+      } catch {}
+
+      try {
+        await ensureCdnLibsLoaded();
+      } catch (e) {
+        // If CDN scripts fail to load, keep code blocks as-is.
+        return;
+      }
+
+      const blocks = Array.from(document.querySelectorAll('pre > code'));
+      let idx = 0;
+      for (const codeEl of blocks) {
+        const pre = codeEl && codeEl.parentElement;
+        if (!pre) continue;
+        const langRaw = getLangFromCodeClass(codeEl);
+        if (!langRaw) continue;
+        const lang = normalizeLang(langRaw);
+        const code = getText(codeEl);
+        if (!code.trim()) continue;
+
+        try {
+          if (lang === 'mermaid') {
+            const mount = replacePreWithContainer(pre, 'mermaid');
+            await renderMermaid(code, mount, idx++);
+          } else if (lang === 'dot') {
+            const mount = replacePreWithContainer(pre, 'dot');
+            await renderDot(code, mount);
+          } else if (lang === 'vega-lite') {
+            const mount = replacePreWithContainer(pre, 'vega-lite');
+            await renderVegaLite(code, mount);
+          } else if (lang === 'infographic') {
+            const mount = replacePreWithContainer(pre, 'infographic');
+            await renderInfographic(code, mount);
+          }
+        } catch {
+          // Keep original code block on error
+        }
+      }
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', () => { main(); }, { once: true });
+    } else {
+      main();
+    }
+  })();
+  </script>`;
+
+      return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+${baseTag}  <title>${escapeHtmlText(title)}</title>
+  <style>${css}</style>
+</head>
+<body>
+  <div id="markdown-content" class="markdown-body">${fragment}</div>
+${liveBootstrap}
+</body>
+</html>`;
+    } finally {
+      try {
+        if (browserRenderer) {
+          await browserRenderer.close();
+        }
+      } finally {
+        (globalThis as any).platform = previousPlatform;
+      }
+    }
   }
 
-  /**
-   * Decode HTML entities in code blocks
-   */
-  private decodeHtmlEntities(text: string): string {
-    return text
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&amp;/g, '&')
-      .replace(/&quot;/g, '"')
-      .replace(/&#39;/g, "'")
-      .replace(/&#x27;/g, "'")
-      .replace(/&#x2F;/g, '/')
-      .replace(/&#x3C;/gi, '<')
-      .replace(/&#x3E;/gi, '>')
-      .replace(/&#x26;/gi, '&')
-      .replace(/&#60;/g, '<')
-      .replace(/&#62;/g, '>')
-      .replace(/&#38;/g, '&');
+  async exportToBuffer(markdown: string, options: Md2HtmlOptions = {}): Promise<Buffer> {
+    const html = await this.exportToString(markdown, options);
+    return Buffer.from(html, 'utf8');
+  }
+
+  async exportToFile(inputPath: string, outputPath: string, options: Md2HtmlOptions = {}): Promise<void> {
+    const markdown = fs.readFileSync(inputPath, 'utf-8');
+    const basePath = options.basePath || path.dirname(path.resolve(inputPath));
+    const title = options.title || path.basename(inputPath, path.extname(inputPath));
+
+    const outputDir = path.dirname(outputPath);
+    if (!fs.existsSync(outputDir)) {
+      fs.mkdirSync(outputDir, { recursive: true });
+    }
+
+    const html = await this.exportToString(markdown, {
+      ...options,
+      basePath,
+      title,
+    });
+
+    fs.writeFileSync(outputPath, html, 'utf8');
   }
 }
 

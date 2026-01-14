@@ -12,6 +12,9 @@ const PACKAGE_NAME = JSON.parse(fs.readFileSync(nodePackageJsonPath, 'utf8')).na
 const inputPath = path.join(__dirname, 'test-full.md');
 const docxOutputPath = path.join(__dirname, 'test-full.docx');
 const pdfOutputPath = path.join(__dirname, 'test-full.pdf');
+const htmlOutputPath = path.join(__dirname, 'test-full.html');
+const htmlNoneOutputPath = path.join(__dirname, 'test-full.none.html');
+const htmlImgOutputPath = path.join(__dirname, 'test-full.img.html');
 
 async function loadApi() {
   try {
@@ -55,6 +58,55 @@ async function main() {
   console.log(`[test] converting to PDF: ${inputPath}`);
   await api.markdownFileToPdfFile(inputPath, pdfOutputPath, { theme: 'default' });
   console.log(`[test] wrote: ${pdfOutputPath}`);
+
+  // Test HTML export
+  if (typeof api.markdownFileToHtmlFile !== 'function') {
+    throw new Error('API is missing markdownFileToHtmlFile()');
+  }
+  console.log(`[test] converting to HTML: ${inputPath}`);
+  await api.markdownFileToHtmlFile(inputPath, htmlOutputPath, { theme: 'default' });
+  console.log(`[test] wrote: ${htmlOutputPath}`);
+
+  const html = fs.readFileSync(htmlOutputPath, 'utf8');
+  if (!html.includes('<!DOCTYPE html>') || !html.includes('id="markdown-content"')) {
+    throw new Error('HTML export output does not look like a standalone document');
+  }
+  if (!html.includes('md2x live diagram renderer (CDN)')) {
+    throw new Error('HTML export (diagramMode: img, cdn) should include the CDN renderer bootstrap');
+  }
+  if (!html.includes('cdn.jsdelivr.net/npm/mermaid')) {
+    throw new Error('HTML export (diagramMode: img, cdn) should reference Mermaid CDN script');
+  }
+  if (!html.includes('cdn.jsdelivr.net/npm/@viz-js/viz') && !html.includes('cdn.jsdelivr.net/npm/viz.js')) {
+    throw new Error('HTML export (diagramMode: img, cdn) should reference a Graphviz CDN script');
+  }
+  if (!html.includes('cdn.jsdelivr.net/npm/vega-embed')) {
+    throw new Error('HTML export (diagramMode: img, cdn) should reference Vega-Embed CDN script');
+  }
+  if (!html.includes('cdn.jsdelivr.net/npm/@antv/infographic')) {
+    throw new Error('HTML export (diagramMode: img, cdn) should reference AntV Infographic CDN script');
+  }
+  if (!html.includes('vega-lite@5') || !html.includes('vega-embed@6')) {
+    throw new Error('HTML export (diagramMode: img, cdn) should include Vega-Lite v5 CDN mapping for v5 schema specs');
+  }
+
+  // Test HTML export (diagramMode: none)
+  console.log(`[test] converting to HTML (diagramMode: none): ${inputPath}`);
+  await api.markdownFileToHtmlFile(inputPath, htmlNoneOutputPath, { theme: 'default', diagramMode: 'none' });
+  console.log(`[test] wrote: ${htmlNoneOutputPath}`);
+
+  const htmlNone = fs.readFileSync(htmlNoneOutputPath, 'utf8');
+  if (!htmlNone.includes('language-mermaid')) {
+    throw new Error('HTML export (diagramMode: none) should keep mermaid code blocks');
+  }
+  if (htmlNone.includes('class="md2x-diagram"')) {
+    throw new Error('HTML export (diagramMode: none) should not inject rendered diagram blocks');
+  }
+
+  // Test HTML export (diagramMode: img)
+  console.log(`[test] converting to HTML (diagramMode: img): ${inputPath}`);
+  await api.markdownFileToHtmlFile(inputPath, htmlImgOutputPath, { theme: 'default', diagramMode: 'img' });
+  console.log(`[test] wrote: ${htmlImgOutputPath}`);
 
   console.log('[test] all tests passed!');
 }

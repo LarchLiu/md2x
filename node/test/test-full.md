@@ -1603,6 +1603,7 @@ flowchart TD
     "x": {
       "field": "月份",
       "type": "ordinal",
+      "sort": null,
       "axis": {
         "labelAngle": 0,
         "labelFontSize": 11,

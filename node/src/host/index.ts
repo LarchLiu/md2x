@@ -1,6 +1,6 @@
 /**
  * Markdown to PDF/DOCX Node Tool
- * Convert markdown files to PDF or Word documents
+ * Convert markdown files to PDF/DOCX/HTML
  *
  * Usage:
  *   npx md2x input.md [output.pdf] [--theme <theme>]
@@ -12,7 +12,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 
-type OutputFormat = 'docx' | 'pdf';
+type OutputFormat = 'docx' | 'pdf' | 'html';
 
 interface NodeOptions {
   input: string;
@@ -22,7 +22,13 @@ interface NodeOptions {
   help: boolean;
   version: boolean;
   listThemes: boolean;
-  hrPageBreak: boolean;
+  diagramMode: 'img' | 'live' | 'none';
+  /**
+   * null means "use format default":
+   * - pdf/docx: true
+   * - html: false
+   */
+  hrPageBreak: boolean | null;
 }
 
 function resolveThemePresetsDir(): string | null {
@@ -80,7 +86,7 @@ function formatThemeList(themes: string[]): string {
 function printHelp(): void {
   const themes = getAvailableThemes();
   console.log(`
-md2x - Convert Markdown to PDF or DOCX
+md2x - Convert Markdown to PDF, DOCX, or HTML
 
 Usage:
   npx md2x <input.md> [output] [options]
@@ -88,16 +94,17 @@ Usage:
 
 Arguments:
   input.md          Input markdown file (required)
-  output            Output file (optional, defaults to input name with .pdf/.docx extension)
+  output            Output file (optional, defaults to input name with .pdf/.docx/.html extension)
 
 Options:
   -o, --output      Output file path
-  -f, --format      Output format: pdf or docx (default: "pdf")
+  -f, --format      Output format: pdf, docx, or html (default: "pdf")
   -t, --theme       Theme name (default: "default")
   -h, --help        Show this help message
   -v, --version     Show version number
-  --hr-page-break   Convert horizontal rules (---, ***, ___) to page breaks (default: true)
-  --no-hr-page-break  Keep horizontal rules as visual lines
+  --diagram-mode    HTML only: img | live | none (default: live)
+  --hr-page-break   Convert horizontal rules (---, ***, ___) to page breaks (default: true for PDF/DOCX; false for HTML)
+  --no-hr-page-break  Keep horizontal rules as visual lines (PDF/DOCX), or force visible HR in HTML
   --list-themes     List all available themes
 
 Examples:
@@ -106,6 +113,7 @@ Examples:
   npx md2x README.md -o output.pdf --theme academic
   npx md2x README.md -f docx --no-hr-page-break
   npx md2x README.md -f docx -o output.docx --theme minimal
+  npx md2x README.md -f html -o output.html
   npx md2x --list-themes
 
 Available Themes:
@@ -151,7 +159,8 @@ function parseArgs(args: string[]): NodeOptions {
     help: false,
     version: false,
     listThemes: false,
-    hrPageBreak: true,
+    diagramMode: 'live',
+    hrPageBreak: null,
   };
 
   let i = 0;
@@ -173,6 +182,19 @@ function parseArgs(args: string[]): NodeOptions {
       options.version = true;
     } else if (arg === '--list-themes') {
       options.listThemes = true;
+    } else if (arg === '--diagram-mode') {
+      i++;
+      if (i < args.length) {
+        const mode = String(args[i]).toLowerCase();
+        if (mode !== 'img' && mode !== 'live' && mode !== 'none') {
+          console.error(`Error: Invalid --diagram-mode "${args[i]}". Must be "img", "live", or "none".`);
+          process.exit(1);
+        }
+        options.diagramMode = mode as NodeOptions['diagramMode'];
+      } else {
+        console.error('Error: --diagram-mode requires a value (img | live | none)');
+        process.exit(1);
+      }
     } else if (arg === '-o' || arg === '--output') {
       i++;
       if (i < args.length) {
@@ -193,13 +215,13 @@ function parseArgs(args: string[]): NodeOptions {
       i++;
       if (i < args.length) {
         const fmt = args[i].toLowerCase();
-        if (fmt !== 'pdf' && fmt !== 'docx') {
-          console.error(`Error: Invalid format "${args[i]}". Must be "pdf" or "docx".`);
+        if (fmt !== 'pdf' && fmt !== 'docx' && fmt !== 'html') {
+          console.error(`Error: Invalid format "${args[i]}". Must be "pdf", "docx", or "html".`);
           process.exit(1);
         }
         options.format = fmt as OutputFormat;
       } else {
-        console.error('Error: --format requires a format (pdf or docx)');
+        console.error('Error: --format requires a format (pdf, docx, or html)');
         process.exit(1);
       }
     } else if (arg === '--hr-page-break') {
@@ -281,7 +303,7 @@ async function main(): Promise<void> {
 
   // Determine output path
   let outputPath = options.output;
-  const outputExt = options.format === 'pdf' ? '.pdf' : '.docx';
+  const outputExt = options.format === 'pdf' ? '.pdf' : options.format === 'docx' ? '.docx' : '.html';
   if (!outputPath) {
     const inputDir = path.dirname(inputPath);
     const inputName = path.basename(inputPath, path.extname(inputPath));
@@ -297,10 +319,14 @@ async function main(): Promise<void> {
   }
 
   // Perform conversion
+  const hrPageBreak = options.hrPageBreak ?? (options.format === 'html' ? false : true);
   console.log(`Converting: ${path.basename(inputPath)}`);
   console.log(`Format: ${options.format.toUpperCase()}`);
   console.log(`Theme: ${options.theme}`);
-  console.log(`HR as page break: ${options.hrPageBreak}`);
+  console.log(`HR as page break: ${hrPageBreak}`);
+  if (options.format === 'html') {
+    console.log(`Diagram mode: ${options.diagramMode}`);
+  }
 
   try {
     if (options.format === 'pdf') {
@@ -308,14 +334,22 @@ async function main(): Promise<void> {
       const exporter = new NodePdfExporter();
       await exporter.exportToFile(inputPath, outputPath, {
         theme: options.theme,
-        pdfHrAsPageBreak: options.hrPageBreak,
+        pdfHrAsPageBreak: hrPageBreak,
       });
-    } else {
+    } else if (options.format === 'docx') {
       const { NodeDocxExporter } = await import('./node-exporter');
       const exporter = new NodeDocxExporter();
       await exporter.exportToFile(inputPath, outputPath, {
         theme: options.theme,
-        docxHrAsPageBreak: options.hrPageBreak,
+        docxHrAsPageBreak: hrPageBreak,
+      });
+    } else {
+      const { NodeHtmlExporter } = await import('./node-exporter');
+      const exporter = new NodeHtmlExporter();
+      await exporter.exportToFile(inputPath, outputPath, {
+        theme: options.theme,
+        diagramMode: options.diagramMode,
+        htmlHrAsPageBreak: hrPageBreak,
       });
     }
 
