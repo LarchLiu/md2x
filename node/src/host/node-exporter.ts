@@ -762,7 +762,7 @@ ${hrStyles}
 function loadKatexCss(): string {
   // `rehype-katex` outputs KaTeX HTML that requires KaTeX CSS.
   // Without it, the MathML/annotation subtree becomes visible in print/PDF and looks like duplicated "source".
-  const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+  const moduleDir = getModuleDir();
   const bundledKatexCssPath = path.join(moduleDir, 'vendor', 'katex', 'katex.min.css');
 
   let katexCssPath = bundledKatexCssPath;
