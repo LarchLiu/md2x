@@ -13,11 +13,18 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { createRequire } from 'module';
 import { fileURLToPath, pathToFileURL } from 'url';
-import DocxExporter from '../../../src/exporters/docx-exporter';
 import { createBrowserRenderer, type BrowserRenderer, type PdfOptions } from './browser-renderer';
 import { createNodePlatform } from './node-platform';
 import { plugins } from '../../../src/plugins/index';
 import type { PluginRenderer, RendererThemeConfig } from '../../../src/types/index';
+
+// Helper to get module directory - uses global set by entry point, or falls back to import.meta.url
+function getModuleDir(): string {
+  if ((globalThis as any).__md2x_module_dir__) {
+    return (globalThis as any).__md2x_module_dir__;
+  }
+  return path.dirname(fileURLToPath(import.meta.url));
+}
 
 export type Md2DocxOptions = {
   theme?: string;
@@ -306,7 +313,7 @@ export class NodeDocxExporter {
 
     const themeId = options.theme || 'default';
     const basePath = options.basePath ?? process.cwd();
-    const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+    const moduleDir = getModuleDir();
 
     const { platform, getCapturedBuffer } = createNodePlatform({
       moduleDir,
@@ -333,6 +340,8 @@ export class NodeDocxExporter {
       const themeConfig = await loadRendererThemeConfig(themeId);
       const pluginRenderer = createPluginRenderer(browserRenderer, basePath, themeConfig);
 
+      // Dynamic import to reduce bundle size - docx is only loaded when needed
+      const { default: DocxExporter } = await import('../../../src/exporters/docx-exporter');
       const exporter = new DocxExporter(pluginRenderer);
       exporter.setBaseUrl?.(pathToFileURL(virtualDocPath).href);
 
@@ -785,7 +794,7 @@ export class NodePdfExporter {
 
     const themeId = options.theme || 'default';
     const basePath = options.basePath ?? process.cwd();
-    const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+    const moduleDir = getModuleDir();
 
     const { platform } = createNodePlatform({
       moduleDir,
@@ -853,7 +862,7 @@ export class NodeHtmlExporter {
 
     const themeId = options.theme || 'default';
     const basePath = options.basePath ?? process.cwd();
-    const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+    const moduleDir = getModuleDir();
     const diagramMode: 'img' | 'live' | 'none' = options.diagramMode || 'live';
 
     const { platform } = createNodePlatform({

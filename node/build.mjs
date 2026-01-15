@@ -96,104 +96,70 @@ async function build() {
   copyKatexAssets(outDir);
 
   try {
-    let onCliEnd = () => {};
-    let onApiEnd = () => {};
+    let onMainEnd = () => {};
     let onRendererEnd = () => {};
 
-    console.log('Building CLI...');
-    const cliCtx = await esbuild.context({
-      entryPoints: [path.join(__dirname, 'src/host/cli.ts')],
-      bundle: true,
-      platform: 'node',
-      target: 'node18',
-      format: 'esm',
-      outfile: path.join(outDir, 'md2x.mjs'),
-      banner: {
-        js: '#!/usr/bin/env node',
-      },
-      plugins: [
-        {
-          name: 'md2x-node-runner',
-          setup(build) {
-            build.onEnd((result) => onCliEnd(result));
-          },
-        },
-      ],
-      external: [
-        // Node.js built-ins
-        'fs',
-        'path',
-        'url',
-        'crypto',
-        'util',
-        'stream',
-        'buffer',
-        'os',
-        'zlib',
-        'http',
-        'https',
-        'events',
-        'assert',
-        'child_process',
-        'worker_threads',
-        'perf_hooks',
-        // Runtime dependency
-        'puppeteer',
-      ],
-      minify: false,
-      sourcemap: false,
-      define: {
-        'process.env.NODE_ENV': '"production"',
-      },
-      logLevel: 'info',
-    });
-    await cliCtx.rebuild();
+    // Common external modules for Node builds
+    const nodeExternals = [
+      // Node.js built-ins
+      'fs',
+      'path',
+      'url',
+      'crypto',
+      'util',
+      'stream',
+      'buffer',
+      'os',
+      'zlib',
+      'http',
+      'https',
+      'events',
+      'assert',
+      'child_process',
+      'worker_threads',
+      'perf_hooks',
+      // Runtime dependency
+      'puppeteer',
+    ];
 
-    console.log('Building Node API (importable)...');
-    const apiCtx = await esbuild.context({
-      entryPoints: [path.join(__dirname, 'src/index.ts')],
+    console.log('Building CLI and Node API...');
+    // Build CLI and API together to share chunks
+    const mainCtx = await esbuild.context({
+      entryPoints: {
+        'md2x': path.join(__dirname, 'src/host/cli.ts'),
+        'index': path.join(__dirname, 'src/index.ts'),
+      },
       bundle: true,
       platform: 'node',
       target: 'node18',
       format: 'esm',
-      outfile: path.join(outDir, 'index.mjs'),
+      outdir: outDir,
+      chunkNames: 'chunks/[name]-[hash]',
+      splitting: true,
       plugins: [
         {
-          name: 'md2x-node-api',
+          name: 'md2x-node-build',
           setup(build) {
-            build.onEnd((result) => onApiEnd(result));
+            build.onEnd((result) => onMainEnd(result));
           },
         },
       ],
-      external: [
-        // Node.js built-ins
-        'fs',
-        'path',
-        'url',
-        'crypto',
-        'util',
-        'stream',
-        'buffer',
-        'os',
-        'zlib',
-        'http',
-        'https',
-        'events',
-        'assert',
-        'child_process',
-        'worker_threads',
-        'perf_hooks',
-        // Runtime dependency
-        'puppeteer',
-      ],
-      minify: false,
+      external: nodeExternals,
+      minify: true,
       sourcemap: false,
       define: {
         'process.env.NODE_ENV': '"production"',
       },
       logLevel: 'info',
     });
-    await apiCtx.rebuild();
+    await mainCtx.rebuild();
+
+    // Add shebang to CLI output
+    const outFile = path.join(outDir, 'md2x.js');
+    const cliContent = fs.readFileSync(outFile, 'utf8');
+    if (!cliContent.startsWith('#!')) {
+      fs.writeFileSync(outFile, '#!/usr/bin/env node\n' + cliContent);
+    }
 
     // Build Puppeteer render worker (browser bundle) + HTML wrapper
     const rendererOutDir = path.join(outDir, 'renderer');
@@ -238,18 +204,7 @@ async function build() {
 
     const writeRendererHtml = () => {
       // Create puppeteer-render.html (no <base>; Node sets base dynamically)
-      const require = createRequire(import.meta.url);
-      let mermaidJsPath = '';
-      try {
-        mermaidJsPath = require.resolve('mermaid/dist/mermaid.min.js');
-      } catch {
-        // Fallback for monorepo installs where mermaid is only at the project root.
-        const fallback = path.join(rootDir, 'node_modules', 'mermaid', 'dist', 'mermaid.min.js');
-        if (fs.existsSync(fallback)) {
-          mermaidJsPath = fallback;
-        }
-      }
-      const mermaidJs = mermaidJsPath && fs.existsSync(mermaidJsPath) ? fs.readFileSync(mermaidJsPath, 'utf8') : '';
+      // Load mermaid from CDN to keep the HTML file small
       const rendererHtml = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -264,7 +219,7 @@ async function build() {
 <body>
   <div id="render-container"></div>
   <canvas id="png-canvas"></canvas>
-  <script>${mermaidJs}</script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
   <script src="./puppeteer-render-worker.js"></script>
 </body>
 </html>`;
@@ -282,15 +237,14 @@ async function build() {
     }
 
     // Make the output file executable (banner provides shebang).
-    const outFile = path.join(outDir, 'md2x.mjs');
+    // Note: splitting mode outputs .js files, not .mjs
     fs.chmodSync(outFile, 0o755);
 
     console.log('\nBuild complete!');
     console.log(`Output: ${outFile}`);
 
     if (watch) {
-      await cliCtx.watch();
-      await apiCtx.watch();
+      await mainCtx.watch();
       await rendererCtx.watch();
 
       const debounce = (fn, ms) => {
@@ -302,8 +256,7 @@ async function build() {
       };
 
       let child = null;
-      let ignoreNextCliEnd = true;
-      let ignoreNextApiEnd = true;
+      let ignoreNextMainEnd = true;
       let ignoreNextRendererEnd = true;
       const spawnCli = () => {
         const args = runArgs.length ? runArgs : ['--help'];
@@ -326,24 +279,20 @@ async function build() {
         spawnCli();
       } else {
         console.log('\nWatching for changes...');
-    console.log('Tip: run `node node/dist/md2x.mjs --help` in another terminal.');
+    console.log('Tip: run `node node/dist/md2x.js --help` in another terminal.');
       }
 
-      onCliEnd = (result) => {
+      onMainEnd = (result) => {
         if (!run) return;
         if (result?.errors?.length) return;
-        if (ignoreNextCliEnd) {
-          ignoreNextCliEnd = false;
+        if (ignoreNextMainEnd) {
+          ignoreNextMainEnd = false;
           return;
         }
-        restartCli();
-      };
-      onApiEnd = (result) => {
-        if (!run) return;
-        if (result?.errors?.length) return;
-        if (ignoreNextApiEnd) {
-          ignoreNextApiEnd = false;
-          return;
+        // Re-add shebang after rebuild
+        const content = fs.readFileSync(outFile, 'utf8');
+        if (!content.startsWith('#!')) {
+          fs.writeFileSync(outFile, '#!/usr/bin/env node\n' + content);
         }
         restartCli();
       };
@@ -367,10 +316,7 @@ async function build() {
           if (child) child.kill('SIGTERM');
         } catch {}
         try {
-          await cliCtx.dispose();
-        } catch {}
-        try {
-          await apiCtx.dispose();
+          await mainCtx.dispose();
         } catch {}
         try {
           await rendererCtx.dispose();
@@ -383,8 +329,7 @@ async function build() {
       return;
     }
 
-    await cliCtx.dispose();
-    await apiCtx.dispose();
+    await mainCtx.dispose();
     await rendererCtx.dispose();
   } catch (error) {
     console.error('Build failed:', error);

@@ -42,7 +42,7 @@ export async function loadApi() {
   try {
     _api = await import(PACKAGE_NAME);
   } catch (e) {
-    const fallback = path.join(repoRoot, '../dist/index.mjs');
+    const fallback = path.join(repoRoot, 'dist/index.js');
     if (fs.existsSync(fallback)) {
       console.warn(`Failed to import "${PACKAGE_NAME}", falling back to ${fallback}`);
       _api = await import(pathToFileURL(fallback).href);

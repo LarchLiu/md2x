@@ -11,6 +11,13 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
+
+// Set the module directory globally for code-split chunks to use
+// This must be done before any other imports that depend on it
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+(globalThis as any).__md2x_module_dir__ = __dirname;
+
 import {
   type OutputFormat,
   type DiagramMode,
@@ -18,6 +25,11 @@ import {
   frontMatterToOptions,
   convert,
 } from './index';
+
+// Helper to get module directory
+function getModuleDir(): string {
+  return (globalThis as any).__md2x_module_dir__ || __dirname;
+}
 
 // ============================================================================
 // CLI-specific types and functions
@@ -43,7 +55,7 @@ interface NodeOptions {
 }
 
 function resolveThemePresetsDir(): string | null {
-  const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+  const moduleDir = getModuleDir();
 
   const candidates = [
     // Bundled output: node/dist/themes/presets
@@ -133,7 +145,7 @@ Available Themes:
 
 function printVersion(): void {
   // ESM-safe __dirname equivalent
-  const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+  const moduleDir = getModuleDir();
   // When bundled, import.meta.url points to `node/dist/md2x.mjs`.
   // Prefer the Node package version (`node/package.json`), fall back to repo root `package.json`.
   const candidates = [path.join(moduleDir, '../package.json'), path.join(moduleDir, '../../package.json')];

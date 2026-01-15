@@ -13,6 +13,14 @@ import * as path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import type { RendererThemeConfig } from '../../../src/types/index';
 
+// Helper to get module directory - uses global set by entry point, or falls back to import.meta.url
+function getModuleDir(): string {
+  if ((globalThis as any).__md2x_module_dir__) {
+    return (globalThis as any).__md2x_module_dir__;
+  }
+  return path.dirname(fileURLToPath(import.meta.url));
+}
+
 // Dynamic import for puppeteer (optional dependency)
 let puppeteer: typeof import('puppeteer') | null = null;
 
@@ -74,8 +82,8 @@ export interface BrowserRenderer {
 }
 
 function resolveRendererHtmlPath(): string {
-  // When bundled, import.meta.url points to node/dist/md2x.mjs
-  const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+  // When bundled, use global module dir set by entry point
+  const moduleDir = getModuleDir();
   return path.join(moduleDir, 'renderer', 'puppeteer-render.html');
 }
 
