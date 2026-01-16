@@ -1,0 +1,14 @@
+services:
+  md2x-mcp:
+    build: .
+    ports:
+      - "${PORT:-3000}:${PORT:-3000}"
+    environment:
+      - PORT=${PORT:-3000}
+      - MD2X_RESOURCES_BASE_URL=${MD2X_RESOURCES_BASE_URL:-http://localhost:3000/resources}
+    volumes:
+      - md2x-resources:/app/resources
+    restart: unless-stopped
+
+volumes:
+  md2x-resources:

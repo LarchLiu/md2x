@@ -1,0 +1,8 @@
+# Node package local ignores
+
+# Node test artifacts (generated exports)
+/resources/**/*.pdf
+/resources/**/*.docx
+/resources/**/*.html
+
+.env

@@ -1,0 +1,27 @@
+{
+  "name": "md2x-mcp",
+  "version": "0.5.2",
+  "private": true,
+  "type": "module",
+  "description": "MCP (Model Context Protocol) server for md2x, implemented with Express.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.25.2",
+    "express": "^5.2.1",
+    "md2x": "~0.5.2",
+    "zod": "^4.3.5"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "dotenv": "^17.2.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["puppeteer"]
+  }
+}
