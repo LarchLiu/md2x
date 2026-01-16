@@ -86,7 +86,17 @@ async function executeConvert(options, format) {
   const url = `${getResourcesBaseUrl()}/${filename}`;
 
   return {
-    content: [{ type: "text", text: JSON.stringify({ format: actualFormat, mimeType, url }) }],
+    content: [{
+      type: "resource_link",
+      uri: url,
+      name: filename,
+      mimeType: mimeType,
+      annotations: {
+        audience: ["user"],
+        priority: 1.0,
+        lastModified: new Date().toISOString(),
+      },
+    }],
   };
 }
 
