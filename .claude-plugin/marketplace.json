@@ -12,7 +12,7 @@
     {
       "name": "md2x",
       "description": "Convert Markdown files to PDF, DOCX, or HTML with diagrams and formulas support",
-      "source": "./node",
+      "source": "./",
       "strict": false,
       "skills": [
         "./skills/md2x"
