@@ -1,0 +1,22 @@
+{
+  "name": "md2x-skills",
+  "owner": {
+    "name": "Alex Liu",
+    "email": "larch.liu@gmail.com"
+  },
+  "metadata": {
+    "description": "Skills for using md2x tools - Convert Markdown to PDF, DOCX, or HTML",
+    "version": "0.5.2"
+  },
+  "plugins": [
+    {
+      "name": "md2x",
+      "description": "Convert Markdown files to PDF, DOCX, or HTML with diagrams and formulas support",
+      "source": "./node",
+      "strict": false,
+      "skills": [
+        "./skills/md2x"
+      ]
+    }
+  ]
+}
