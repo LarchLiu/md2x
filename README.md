@@ -4,6 +4,25 @@ Markdown → PDF/DOCX/HTML converter (local, no server). Supports Mermaid/Graphv
 
 [![npm version](https://img.shields.io/npm/v/md2x.svg?style=flat-square)](https://www.npmjs.com/package/md2x)
 
+## CLI Options
+
+| Option | Alias | Description | Default | Values |
+|--------|-------|-------------|---------|--------|
+| `--help` | `-h` | Show help message | - | - |
+| `--version` | `-v` | Show version number | - | - |
+| `--output` | `-o` | Output file path | Input name with format extension | File path |
+| `--format` | `-f` | Output format | `pdf` | `pdf`, `docx`, `html` |
+| `--theme` | `-t` | Theme name | `default` | See `--list-themes` |
+| `--diagram-mode` | - | HTML diagram rendering mode | `live` | `img`, `live`, `none` |
+| `--hr-page-break` | - | Convert horizontal rules to page breaks | `true` for PDF/DOCX, `false` for HTML | `true`, `false` |
+| `--list-themes` | - | List all available themes | - | - |
+
+### Diagram Modes (HTML only)
+
+- **`live`** (default): Render diagrams in the browser on load using online CDN scripts (Mermaid, @viz-js/viz, Vega-Lite, Infographic)
+- **`img`**: Pre-render diagrams as embedded images (offline, stable)
+- **`none`**: Keep diagram source blocks only (no rendering)
+
 ## Usage
 
 Export to PDF:
@@ -23,23 +42,6 @@ Export to HTML:
 npx md2x input.md -f html
 ```
 
-HTML diagram modes:
-
-```bash
-# Render diagrams in the browser on load (default)
-# - uses online CDN scripts (Mermaid/@viz-js/viz/Vega-Lite/Infographic)
-npx md2x input.md -f html --diagram-mode live
-
-# Pre-render diagrams as embedded images (offline, stable)
-npx md2x input.md -f html --diagram-mode img
-
-# Render diagrams in the browser on load (keeps source blocks)
-# Tip: Vega-Lite CDN major version is auto-selected from the spec $schema (v5 or v6).
-
-# Keep diagram source blocks only (no rendering)
-npx md2x input.md -f html --diagram-mode none
-```
-
 List themes:
 
 ```bash
@@ -57,6 +59,34 @@ Help:
 ```bash
 npx md2x -h
 ```
+
+## MCP server (Model Context Protocol)
+
+This repo includes an Express-based MCP server that exposes `md2x` as MCP tools over HTTP, so MCP clients can convert Markdown and download the generated HTML/PDF/DOCX from `/resources`.
+
+Run:
+
+```bash
+pnpm -C mcp install
+pnpm -C mcp start
+```
+
+Endpoints:
+
+- Streamable HTTP (recommended): `POST/GET/DELETE /mcp`
+- Legacy HTTP+SSE: `GET /sse` and `POST /messages?sessionId=...`
+- Resources (static files): `GET /resources/*`
+
+Tools:
+
+- `md2x_to_html` / `md2x_to_pdf` / `md2x_to_docx` - Convert Markdown to HTML/PDF/DOCX
+- `md2x_convert` - Auto convert via `md2x.convert()` (front matter supported)
+- `resources_upload` - Upload a file to `/resources` (e.g. images referenced by Markdown)
+
+Notes:
+
+- The conversion tools return an MCP `resource_link` pointing to the generated file URL.
+- Config: `MD2X_BASE_URL` (used to build the public `/resources` URL). See `mcp/README.md`.
 
 ## Puppeteer / Chrome install
 

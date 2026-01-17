@@ -9,7 +9,7 @@ pnpm -C mcp install
 pnpm -C mcp start
 ```
 
-By default it listens on `http://localhost:3001`.
+By default it listens on `http://localhost:3000` (or whatever `PORT` is set to in `mcp/.env`).
 
 ## Endpoints
 
@@ -19,12 +19,13 @@ By default it listens on `http://localhost:3001`.
 
 ## Tools (MCP)
 
-All tools return JSON: `{ format, mimeType, url }`
+Conversion tools return an MCP `resource_link` pointing to a generated file URL under `/resources`.
 
 - `md2x_to_html` - Convert markdown to HTML
 - `md2x_to_pdf` - Convert markdown to PDF
 - `md2x_to_docx` - Convert markdown to DOCX
 - `md2x_convert` - Auto convert via `md2x.convert()` (front matter supported)
+- `resources_upload` - Upload a file to `/resources` (base64 content) and get back a URL
 
 ## Environment Variables
 
@@ -32,8 +33,8 @@ Create a `.env` file in the `mcp` directory:
 
 ```env
 PORT=3001
-MD2X_RESOURCES_BASE_URL=http://localhost:3001/resources
+MD2X_BASE_URL=http://localhost:3001
 ```
 
 - `PORT` - Server port (default: `3000`)
-- `MD2X_RESOURCES_BASE_URL` - Base URL for file downloads (optional, auto-generated from `PORT` if not set)
+- `MD2X_BASE_URL` - Base URL used to build the public `/resources` download URL (optional, auto-generated from `PORT` if not set)
