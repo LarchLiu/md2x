@@ -12,6 +12,7 @@ description: Convert Markdown files to PDF, DOCX, or HTML with support for diagr
 ## Critical Usage Rules
 
 ### Rule 1: Basic Conversion
+
 ```bash
 # PDF (default)
 npx md2x input.md
@@ -24,6 +25,7 @@ npx md2x input.md -f html
 ```
 
 ### Rule 2: Output Control
+
 ```bash
 # Specify output path
 npx md2x input.md -o output.pdf
@@ -33,6 +35,7 @@ npx md2x README.md -f docx  # → README.docx
 ```
 
 ### Rule 3: Theme Selection
+
 ```bash
 # List available themes
 npx md2x --list-themes
@@ -43,6 +46,7 @@ npx md2x input.md -t minimal
 ```
 
 ### Rule 4: Page Break Control
+
 ```bash
 # Horizontal rules as page breaks (default for PDF/DOCX)
 npx md2x input.md --hr-page-break true
@@ -52,6 +56,7 @@ npx md2x input.md --hr-page-break false
 ```
 
 ### Rule 5: HTML Diagram Modes
+
 ```bash
 # Live rendering with CDN (default, requires internet)
 npx md2x input.md -f html --diagram-mode live
@@ -64,6 +69,7 @@ npx md2x input.md -f html --diagram-mode none
 ```
 
 ### Rule 6: Front Matter Configuration
+
 ```markdown
 ---
 format: pdf
@@ -79,34 +85,35 @@ title: My Document
 
 ## CLI Options Reference
 
-| Option | Alias | Description | Default | Values |
-|--------|-------|-------------|---------|--------|
-| `--help` | `-h` | Show help message | - | - |
-| `--version` | `-v` | Show version number | - | - |
-| `--output` | `-o` | Output file path | Input name with format extension | File path |
-| `--format` | `-f` | Output format | `pdf` | `pdf`, `docx`, `html` |
-| `--theme` | `-t` | Theme name | `default` | See `--list-themes` |
-| `--diagram-mode` | - | HTML diagram rendering mode | `live` | `img`, `live`, `none` |
-| `--hr-page-break` | - | Convert horizontal rules to page breaks | `true` for PDF/DOCX, `false` for HTML | `true`, `false` |
-| `--list-themes` | - | List all available themes | - | - |
+| Option            | Alias | Description                             | Default                               | Values                |
+| ----------------- | ----- | --------------------------------------- | ------------------------------------- | --------------------- |
+| `--help`          | `-h`  | Show help message                       | -                                     | -                     |
+| `--version`       | `-v`  | Show version number                     | -                                     | -                     |
+| `--output`        | `-o`  | Output file path                        | Input name with format extension      | File path             |
+| `--format`        | `-f`  | Output format                           | `pdf`                                 | `pdf`, `docx`, `html` |
+| `--theme`         | `-t`  | Theme name                              | `default`                             | See `--list-themes`   |
+| `--diagram-mode`  | -     | HTML diagram rendering mode             | `live`                                | `img`, `live`, `none` |
+| `--hr-page-break` | -     | Convert horizontal rules to page breaks | `true` for PDF/DOCX, `false` for HTML | `true`, `false`       |
+| `--list-themes`   | -     | List all available themes               | -                                     | -                     |
 
 ---
 
 ## Common Pitfalls
 
-| Issue | Solution |
-|-------|----------|
-| Input file not found | Use absolute path or verify file exists |
-| Theme not found | Run `--list-themes` to see available options |
+| Issue                          | Solution                                               |
+| ------------------------------ | ------------------------------------------------------ |
+| Input file not found           | Use absolute path or verify file exists                |
+| Theme not found                | Run `--list-themes` to see available options           |
 | Diagrams not rendering in HTML | Check `--diagram-mode` setting and internet connection |
-| Page breaks not working | Verify `--hr-page-break true` for PDF/DOCX |
-| Output directory doesn't exist | Tool creates directories automatically |
+| Page breaks not working        | Verify `--hr-page-break true` for PDF/DOCX             |
+| Output directory doesn't exist | Tool creates directories automatically                 |
 
 ---
 
 ## Supported Features
 
 ### Diagrams
+
 - **Mermaid**: Flowcharts, sequence diagrams, state machines, Gantt charts
 - **Graphviz**: DOT language graphs
 - **Vega/Vega-Lite**: Data visualizations and charts
@@ -114,6 +121,7 @@ title: My Document
 - **HTML/SVG**: Embedded graphics
 
 ### Content
+
 - **Math**: LaTeX formulas via KaTeX
 - **Code**: Syntax highlighting for 100+ languages
 - **Tables**: Full markdown table support
@@ -131,6 +139,7 @@ CLI arguments explicitly set take precedence over front matter:
 3. **Default values** (lowest priority)
 
 Example:
+
 ```bash
 # Front matter has theme: minimal
 # CLI overrides with theme: academic
