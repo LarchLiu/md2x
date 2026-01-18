@@ -5,13 +5,13 @@
     "email": "larch.liu@gmail.com"
   },
   "metadata": {
-    "description": "Skills for using md2x tools - Convert Markdown to PDF, DOCX, or HTML",
-    "version": "0.5.2"
+    "description": "Skills for using md2x tools - Convert Markdown to PDF, DOCX, HTML or Image (png/jpeg/webp)",
+    "version": "0.6.0"
   },
   "plugins": [
     {
       "name": "md2x",
-      "description": "Convert Markdown files to PDF, DOCX, or HTML with diagrams and formulas support",
+      "description": "Convert Markdown files to PDF, DOCX, HTML or Image (png/jpeg/webp) with diagrams and formulas support",
       "source": "./",
       "strict": false,
       "skills": [
