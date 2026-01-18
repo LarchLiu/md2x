@@ -1,11 +1,11 @@
 ---
 name: md2x
-description: Convert Markdown files to PDF, DOCX, or HTML. This is a CLI tool that must be used with `npx md2x <input.md> -f <docx|pdf|html> [options]`. 
+description: Convert Markdown files to PDF, DOCX, HTML, or full-page images (png/jpg/webp). Use `npx md2x <input.md> -f <docx|pdf|html|png|jpg|jpeg|webp> [options]`.
 ---
 
 # md2x - Markdown Converter
 
-**Quick Start:** Run `npx md2x input.md` for PDF, add `-f docx` for Word, `-f html` for web. Customize with `--theme` (academic, minimal, etc.), `--hr-page-break` for page control. Supports front matter config in markdown files.
+**Quick Start:** Run `npx md2x input.md` for PDF, add `-f docx` for Word, `-f html` for web, or `-f png` for a full-page screenshot image. Customize with `--theme` (academic, minimal, etc.). Supports front matter config in markdown files.
 
 ---
 
@@ -22,7 +22,15 @@ npx md2x input.md -f docx
 
 # HTML
 npx md2x input.md -f html
+
+# Image (full-page screenshot via Puppeteer)
+npx md2x input.md -f png
+npx md2x input.md -f jpg
+npx md2x input.md -f webp
 ```
+
+For very tall documents, md2x will automatically split the output into multiple files:
+`output.part-001.png`, `output.part-002.png`, ...
 
 ### Rule 2: Output Control
 
@@ -32,6 +40,10 @@ npx md2x input.md -o output.pdf
 
 # Auto-named output (input name + format extension)
 npx md2x README.md -f docx  # → README.docx
+
+# Format can be inferred from output extension (no -f needed)
+npx md2x README.md README.png
+npx md2x README.md README.webp
 ```
 
 ### Rule 3: Theme Selection
@@ -90,7 +102,7 @@ title: My Document
 | `--help`          | `-h`  | Show help message                       | -                                     | -                     |
 | `--version`       | `-v`  | Show version number                     | -                                     | -                     |
 | `--output`        | `-o`  | Output file path                        | Input name with format extension      | File path             |
-| `--format`        | `-f`  | Output format                           | `pdf`                                 | `pdf`, `docx`, `html` |
+| `--format`        | `-f`  | Output format                           | `pdf`                                 | `pdf`, `docx`, `html`, `png`, `jpg`/`jpeg`, `webp` |
 | `--theme`         | `-t`  | Theme name                              | `default`                             | See `--list-themes`   |
 | `--diagram-mode`  | -     | HTML diagram rendering mode             | `live`                                | `img`, `live`, `none` |
 | `--hr-page-break` | -     | Convert horizontal rules to page breaks | `true` for PDF/DOCX, `false` for HTML | `true`, `false`       |

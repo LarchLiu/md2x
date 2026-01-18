@@ -13,7 +13,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { createRequire } from 'module';
 import { fileURLToPath, pathToFileURL } from 'url';
-import { createBrowserRenderer, type BrowserRenderer, type PdfOptions } from './browser-renderer';
+import { createBrowserRenderer, type BrowserRenderer, type PdfOptions, type ImageOptions } from './browser-renderer';
 import { createNodePlatform } from './node-platform';
 import { plugins } from '../../../src/plugins/index';
 import type { PluginRenderer, RendererThemeConfig } from '../../../src/types/index';
@@ -37,6 +37,26 @@ export type Md2PdfOptions = {
   theme?: string;
   basePath?: string;
   pdf?: PdfOptions;
+  /** When true, horizontal rules (---, ***, ___) will be converted to page breaks */
+  hrAsPageBreak?: boolean;
+};
+
+export type Md2ImageOptions = {
+  theme?: string;
+  basePath?: string;
+  image?: ImageOptions;
+  /**
+   * Diagram rendering mode for image export:
+   * - "img": pre-render diagrams before screenshot (offline-friendly)
+   * - "live": keep code blocks and render in page via CDN scripts before screenshot
+   * - "none": do not process diagrams
+   */
+  diagramMode?: 'img' | 'live' | 'none';
+  /**
+   * CDN overrides for live diagram mode.
+   * Same shape as HTML export's `cdn` option.
+   */
+  cdn?: Md2HtmlOptions['cdn'];
   /** When true, horizontal rules (---, ***, ___) will be converted to page breaks */
   hrAsPageBreak?: boolean;
 };
@@ -194,7 +214,10 @@ async function processDiagrams(
     try {
       const result = await browserRenderer.render(renderType, decodedCode, basePath, themeConfig);
       if (result && result.base64) {
-        const imgTag = `<div class="md2x-diagram"><img class="md2x-diagram" src="data:image/${result.format};base64,${result.base64}" alt="${escapeHtmlText(
+        // Tag the wrapper/img with kind so callers can target specific diagram types via CSS selectors,
+        // e.g. `.md2x-diagram[data-md2x-diagram-kind="mermaid"]`.
+        const kind = escapeHtmlText(renderType);
+        const imgTag = `<div class="md2x-diagram" data-md2x-diagram-kind="${kind}"><img class="md2x-diagram" data-md2x-diagram-kind="${kind}" src="data:image/${result.format};base64,${result.base64}" alt="${escapeHtmlText(
           `${lang} diagram`
         )}" style="max-width: 100%;" /></div>`;
         html = html.replace(fullMatch, imgTag);
@@ -299,6 +322,334 @@ async function markdownToHtmlFragment(
   html = await processDiagrams(html, browserRenderer, basePath, themeConfig, diagramMode);
 
   return html;
+}
+
+function buildLiveDiagramBootstrap(
+  themeConfig: RendererThemeConfig | null,
+  baseHref: string,
+  cdnOverrides: Md2HtmlOptions['cdn'] | undefined
+): string {
+  const cdnBaseDefaults = {
+    mermaid: 'https://cdn.jsdelivr.net/npm/mermaid@11.12.2/dist/mermaid.min.js',
+    // Preferred: modern Graphviz WASM build (provides window.Viz.instance()).
+    vizGlobal: 'https://cdn.jsdelivr.net/npm/@viz-js/viz@3.24.0/dist/viz-global.js',
+    // Legacy fallback (provides window.Viz constructor).
+    viz: 'https://cdn.jsdelivr.net/npm/viz.js@2.1.2/viz.js',
+    vizRender: 'https://cdn.jsdelivr.net/npm/viz.js@2.1.2/full.render.js',
+    infographic: 'https://cdn.jsdelivr.net/npm/@antv/infographic@0.2.7/dist/infographic.min.js',
+  } as const;
+
+  const cdnVegaDefaultsByMajor = {
+    // Vega-Lite v5 is typically used with Vega v5 + Vega-Embed v6.
+    5: {
+      vega: 'https://cdn.jsdelivr.net/npm/vega@5/build/vega.min.js',
+      vegaLite: 'https://cdn.jsdelivr.net/npm/vega-lite@5/build/vega-lite.min.js',
+      vegaEmbed: 'https://cdn.jsdelivr.net/npm/vega-embed@6/build/vega-embed.min.js',
+    },
+    // Vega-Lite v6 is typically used with Vega v6 + Vega-Embed v7.
+    6: {
+      vega: 'https://cdn.jsdelivr.net/npm/vega@6/build/vega.min.js',
+      vegaLite: 'https://cdn.jsdelivr.net/npm/vega-lite@6/build/vega-lite.min.js',
+      vegaEmbed: 'https://cdn.jsdelivr.net/npm/vega-embed@7/build/vega-embed.min.js',
+    },
+  } as const;
+
+  return `
+  <!-- md2x live diagram renderer (CDN) -->
+  <script>
+  (function () {
+    const themeConfig = ${JSON.stringify(themeConfig ?? null)};
+    const baseHref = ${JSON.stringify(baseHref)};
+    const cdnOverrides = ${JSON.stringify(cdnOverrides ?? {})};
+    const cdnBaseDefaults = ${JSON.stringify(cdnBaseDefaults)};
+    const cdnVegaDefaultsByMajor = ${JSON.stringify(cdnVegaDefaultsByMajor)};
+
+    try { window.__md2xLiveDone = false; } catch {}
+
+    function loadScript(src) {
+      return new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = src;
+        s.async = false;
+        s.onload = () => resolve();
+        s.onerror = () => reject(new Error('Failed to load script: ' + src));
+        document.head.appendChild(s);
+      });
+    }
+
+    function getLangFromCodeClass(codeEl) {
+      const cls = (codeEl && codeEl.className) ? String(codeEl.className) : '';
+      const m = cls.match(/\\blanguage-([a-z0-9-]+)\\b/i);
+      return m ? m[1] : '';
+    }
+
+    function normalizeLang(lang) {
+      const l = String(lang || '').toLowerCase();
+      if (l === 'graphviz' || l === 'gv') return 'dot';
+      if (l === 'vegalite') return 'vega-lite';
+      return l;
+    }
+
+    function guessVegaLiteSchemaMajorFromSpec(spec) {
+      if (!spec || typeof spec !== 'object') return null;
+      const schema = spec.$schema;
+      if (typeof schema !== 'string') return null;
+      const m = schema.match(/\\/vega-lite\\/v(\\d+)(?:\\.|\\.json|$)/i) || schema.match(/\\/v(\\d+)\\.json$/i);
+      if (!m) return null;
+      const major = parseInt(m[1], 10);
+      return Number.isFinite(major) ? major : null;
+    }
+
+    function guessVegaLiteSchemaMajorFromText(text) {
+      const t = String(text || '');
+      const m = t.match(/\\/vega-lite\\/v(\\d+)(?:\\.|\\.json|$)/i) || t.match(/\\/v(\\d+)\\.json$/i);
+      if (!m) return null;
+      const major = parseInt(m[1], 10);
+      return Number.isFinite(major) ? major : null;
+    }
+
+    function detectVegaLiteMajorFromDocument() {
+      const blocks = Array.from(document.querySelectorAll('pre > code'));
+      let detected = null;
+      for (const codeEl of blocks) {
+        const langRaw = getLangFromCodeClass(codeEl);
+        const lang = normalizeLang(langRaw);
+        if (lang !== 'vega-lite') continue;
+
+        const text = (codeEl && codeEl.textContent) ? codeEl.textContent : '';
+        if (!text.trim()) continue;
+
+        const majorFromText = guessVegaLiteSchemaMajorFromText(text);
+        if (majorFromText && (majorFromText === 5 || majorFromText === 6)) {
+          detected = majorFromText;
+          if (majorFromText === 6) return 6;
+          continue;
+        }
+
+        try {
+          const spec = JSON.parse(text);
+          const major = guessVegaLiteSchemaMajorFromSpec(spec);
+          if (major && (major === 5 || major === 6)) {
+            detected = major;
+            if (major === 6) return 6;
+          }
+        } catch {}
+      }
+      return detected || 6;
+    }
+
+    async function ensureCdnLibsLoaded() {
+      const major = detectVegaLiteMajorFromDocument();
+      const vegaDefaults = cdnVegaDefaultsByMajor[String(major)] || cdnVegaDefaultsByMajor['6'];
+      const cdn = Object.assign({}, cdnBaseDefaults, vegaDefaults, cdnOverrides || {});
+
+      await loadScript(cdn.mermaid);
+      if (cdn.vizGlobal) {
+        await loadScript(cdn.vizGlobal);
+      } else {
+        await loadScript(cdn.viz);
+        await loadScript(cdn.vizRender);
+      }
+      await loadScript(cdn.vega);
+      await loadScript(cdn.vegaLite);
+      await loadScript(cdn.vegaEmbed);
+      await loadScript(cdn.infographic);
+    }
+
+    function replacePreWithContainer(preEl, kind) {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'md2x-diagram';
+      wrapper.setAttribute('data-md2x-diagram-kind', kind);
+      wrapper.style.maxWidth = '100%';
+      const inner = document.createElement('div');
+      inner.className = 'md2x-diagram-inner';
+      inner.style.display = 'inline-block';
+      inner.style.maxWidth = '100%';
+      const mount = document.createElement('div');
+      mount.className = 'md2x-diagram-mount';
+      mount.style.maxWidth = '100%';
+      inner.appendChild(mount);
+      wrapper.appendChild(inner);
+      preEl.replaceWith(wrapper);
+      return mount;
+    }
+
+    function getText(codeEl) {
+      return (codeEl && codeEl.textContent) ? codeEl.textContent : '';
+    }
+
+    async function renderMermaid(code, mount, id) {
+      const mermaid = window.mermaid;
+      if (!mermaid) return;
+      mermaid.initialize({
+        startOnLoad: false,
+        theme: 'default',
+        securityLevel: 'loose',
+        fontFamily: themeConfig && themeConfig.fontFamily ? themeConfig.fontFamily : undefined,
+      });
+      const out = await mermaid.render('md2x-mermaid-' + id, code);
+      mount.innerHTML = out && out.svg ? out.svg : '';
+    }
+
+    async function renderDot(code, mount) {
+      const VizGlobal = window.Viz;
+      if (VizGlobal && typeof VizGlobal.instance === 'function') {
+        const viz = await VizGlobal.instance();
+        const svgEl = viz.renderSVGElement(code, { graphAttributes: { bgcolor: 'transparent' } });
+        mount.appendChild(svgEl);
+        return;
+      }
+      if (typeof window.Viz === 'function') {
+        const viz = new window.Viz();
+        const svgEl = await viz.renderSVGElement(code);
+        mount.appendChild(svgEl);
+      }
+    }
+
+    function applyDefaultVegaLiteSort(spec) {
+      const applyOne = (s) => {
+        if (!s || typeof s !== 'object') return;
+        const enc = s.encoding;
+        const x = enc && enc.x;
+        if (x && typeof x === 'object' && x.type === 'ordinal' && !('sort' in x)) {
+          x.sort = null;
+        }
+      };
+
+      const walk = (s) => {
+        if (!s || typeof s !== 'object') return;
+        applyOne(s);
+        const arrays = ['layer', 'hconcat', 'vconcat', 'concat'];
+        for (const key of arrays) {
+          const childArr = s[key];
+          if (Array.isArray(childArr)) {
+            for (const child of childArr) walk(child);
+          }
+        }
+        if (s.spec) walk(s.spec);
+      };
+      walk(spec);
+    }
+
+    async function renderVegaLite(code, mount) {
+      const vegaEmbed = window.vegaEmbed;
+      if (typeof vegaEmbed !== 'function') return;
+      let spec;
+      try {
+        spec = JSON.parse(code);
+      } catch {
+        mount.textContent = 'Invalid Vega-Lite JSON.';
+        return;
+      }
+      if (!spec) return;
+
+      try {
+        applyDefaultVegaLiteSort(spec);
+      } catch {}
+
+      await vegaEmbed(mount, spec, {
+        actions: false,
+        renderer: 'svg',
+        defaultStyle: true,
+        logLevel: (window.vega && window.vega.Warn) ? window.vega.Warn : undefined,
+      }).catch(() => {});
+    }
+
+    async function renderInfographic(code, mount) {
+      // @antv/infographic UMD exposes window.AntVInfographic
+      const lib = window.AntVInfographic;
+      if (!lib || !lib.Infographic) return;
+
+      try {
+        if (typeof lib.setDefaultFont === 'function') {
+          const ff = themeConfig && themeConfig.fontFamily ? themeConfig.fontFamily : undefined;
+          if (ff) lib.setDefaultFont(ff);
+        }
+      } catch {}
+
+      const opts = {
+        container: mount,
+        width: 900,
+        height: 600,
+        padding: 24,
+      };
+      if (themeConfig && themeConfig.diagramStyle === 'handDrawn') {
+        opts.themeConfig = { stylize: { type: 'rough', roughness: 0.5, bowing: 0.5 } };
+      }
+
+      const ig = new lib.Infographic(opts);
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('Infographic render timeout after 10s')), 10000);
+        ig.on && ig.on('rendered', () => { clearTimeout(timeout); resolve(); });
+        ig.on && ig.on('error', (err) => { clearTimeout(timeout); reject(err); });
+        try {
+          ig.render(code);
+        } catch (e) {
+          clearTimeout(timeout);
+          reject(e);
+        }
+      }).catch(() => {
+        // keep container content on errors
+      });
+    }
+
+    async function main() {
+      try {
+        if (baseHref) {
+          let base = document.querySelector('base');
+          if (!base) {
+            base = document.createElement('base');
+            document.head.appendChild(base);
+          }
+          base.href = baseHref;
+        }
+      } catch {}
+
+      try {
+        await ensureCdnLibsLoaded();
+      } catch {
+        try { window.__md2xLiveDone = true; } catch {}
+        return;
+      }
+
+      const blocks = Array.from(document.querySelectorAll('pre > code'));
+      let idx = 0;
+      for (const codeEl of blocks) {
+        const pre = codeEl && codeEl.parentElement;
+        if (!pre) continue;
+        const langRaw = getLangFromCodeClass(codeEl);
+        if (!langRaw) continue;
+        const lang = normalizeLang(langRaw);
+        const code = getText(codeEl);
+        if (!code.trim()) continue;
+
+        try {
+          if (lang === 'mermaid') {
+            const mount = replacePreWithContainer(pre, 'mermaid');
+            await renderMermaid(code, mount, idx++);
+          } else if (lang === 'dot') {
+            const mount = replacePreWithContainer(pre, 'dot');
+            await renderDot(code, mount);
+          } else if (lang === 'vega-lite') {
+            const mount = replacePreWithContainer(pre, 'vega-lite');
+            await renderVegaLite(code, mount);
+          } else if (lang === 'infographic') {
+            const mount = replacePreWithContainer(pre, 'infographic');
+            await renderInfographic(code, mount);
+          }
+        } catch {}
+      }
+
+      try { window.__md2xLiveDone = true; } catch {}
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', () => { main(); }, { once: true });
+    } else {
+      main();
+    }
+  })();
+  </script>`;
 }
 
 /**
@@ -851,6 +1202,139 @@ export class NodePdfExporter {
 }
 
 /**
+ * Node Image Exporter Class
+ *
+ * Renders Markdown -> HTML -> full-page screenshot (PNG/JPEG/WebP).
+ */
+export class NodeImageExporter {
+  async exportToBuffer(markdown: string, options: Md2ImageOptions = {}): Promise<Buffer> {
+    ensureBase64Globals();
+
+    const themeId = options.theme || 'default';
+    const basePath = options.basePath ?? process.cwd();
+    const moduleDir = getModuleDir();
+
+    const { platform } = createNodePlatform({
+      moduleDir,
+      selectedThemeId: themeId,
+      output: { kind: 'buffer' },
+    });
+
+    const previousPlatform = (globalThis as any).platform;
+    (globalThis as any).platform = platform;
+
+    let browserRenderer: BrowserRenderer | null = null;
+    try {
+      browserRenderer = await createBrowserRenderer();
+      if (!browserRenderer) {
+        throw new Error('Failed to create browser renderer. Puppeteer is required for image export.');
+      }
+      await browserRenderer.initialize();
+
+      const themeConfig = await loadRendererThemeConfig(themeId);
+
+      const diagramMode: 'img' | 'live' | 'none' = options.diagramMode ?? 'live';
+      let html = await markdownToHtmlFragment(markdown, browserRenderer, basePath, themeConfig, diagramMode);
+      if (diagramMode === 'live') {
+        const baseHref = pathToFileURL(basePath + path.sep).href;
+        html = html + '\n' + buildLiveDiagramBootstrap(themeConfig ?? null, baseHref, options.cdn);
+      }
+
+      let katexCss = '';
+      try {
+        katexCss = loadKatexCss();
+      } catch (e) {
+        console.warn('Failed to load KaTeX CSS for image export:', e);
+      }
+
+      const baseCss = await loadBaseCss(options.hrAsPageBreak ?? false);
+
+      let themeCss = '';
+      try {
+        themeCss = await loadThemeCss(themeId);
+      } catch (e) {
+        console.warn('Failed to load theme CSS, using base styles only:', e);
+      }
+
+      const css = katexCss + '\n' + baseCss + '\n' + themeCss;
+
+      return await browserRenderer.exportToImage(html, css, options.image, basePath);
+    } finally {
+      try {
+        if (browserRenderer) {
+          await browserRenderer.close();
+        }
+      } finally {
+        (globalThis as any).platform = previousPlatform;
+      }
+    }
+  }
+
+  async exportToBuffers(markdown: string, options: Md2ImageOptions = {}): Promise<Buffer[]> {
+    ensureBase64Globals();
+
+    const themeId = options.theme || 'default';
+    const basePath = options.basePath ?? process.cwd();
+    const moduleDir = getModuleDir();
+
+    const { platform } = createNodePlatform({
+      moduleDir,
+      selectedThemeId: themeId,
+      output: { kind: 'buffer' },
+    });
+
+    const previousPlatform = (globalThis as any).platform;
+    (globalThis as any).platform = platform;
+
+    let browserRenderer: BrowserRenderer | null = null;
+    try {
+      browserRenderer = await createBrowserRenderer();
+      if (!browserRenderer) {
+        throw new Error('Failed to create browser renderer. Puppeteer is required for image export.');
+      }
+      await browserRenderer.initialize();
+
+      const themeConfig = await loadRendererThemeConfig(themeId);
+
+      const diagramMode: 'img' | 'live' | 'none' = options.diagramMode ?? 'live';
+      let html = await markdownToHtmlFragment(markdown, browserRenderer, basePath, themeConfig, diagramMode);
+      if (diagramMode === 'live') {
+        const baseHref = pathToFileURL(basePath + path.sep).href;
+        html = html + '\n' + buildLiveDiagramBootstrap(themeConfig ?? null, baseHref, options.cdn);
+      }
+
+      let katexCss = '';
+      try {
+        katexCss = loadKatexCss();
+      } catch (e) {
+        console.warn('Failed to load KaTeX CSS for image export:', e);
+      }
+
+      const baseCss = await loadBaseCss(options.hrAsPageBreak ?? false);
+
+      let themeCss = '';
+      try {
+        themeCss = await loadThemeCss(themeId);
+      } catch (e) {
+        console.warn('Failed to load theme CSS, using base styles only:', e);
+      }
+
+      const css = katexCss + '\n' + baseCss + '\n' + themeCss;
+
+      return await browserRenderer.exportToImageParts(html, css, options.image, basePath);
+    } finally {
+      try {
+        if (browserRenderer) {
+          await browserRenderer.close();
+        }
+      } finally {
+        (globalThis as any).platform = previousPlatform;
+      }
+    }
+  }
+}
+
+/**
  * Node HTML Exporter Class
  */
 export class NodeHtmlExporter {
@@ -913,342 +1397,10 @@ export class NodeHtmlExporter {
       const baseHref = shouldEmitBase ? pathToFileURL(basePath + path.sep).href : '';
       const baseTag = baseHref ? `  <base href="${escapeHtmlText(baseHref)}" />\n` : '';
 
-      const cdnBaseDefaults = {
-        mermaid: 'https://cdn.jsdelivr.net/npm/mermaid@11.12.2/dist/mermaid.min.js',
-        // Preferred: modern Graphviz WASM build (provides window.Viz.instance()).
-        vizGlobal: 'https://cdn.jsdelivr.net/npm/@viz-js/viz@3.24.0/dist/viz-global.js',
-        // Legacy fallback (provides window.Viz constructor).
-        viz: 'https://cdn.jsdelivr.net/npm/viz.js@2.1.2/viz.js',
-        vizRender: 'https://cdn.jsdelivr.net/npm/viz.js@2.1.2/full.render.js',
-        infographic: 'https://cdn.jsdelivr.net/npm/@antv/infographic@0.2.7/dist/infographic.min.js',
-      } as const;
-
-      const cdnVegaDefaultsByMajor = {
-        // Vega-Lite v5 is typically used with Vega v5 + Vega-Embed v6.
-        5: {
-          vega: 'https://cdn.jsdelivr.net/npm/vega@5/build/vega.min.js',
-          vegaLite: 'https://cdn.jsdelivr.net/npm/vega-lite@5/build/vega-lite.min.js',
-          vegaEmbed: 'https://cdn.jsdelivr.net/npm/vega-embed@6/build/vega-embed.min.js',
-        },
-        // Vega-Lite v6 is typically used with Vega v6 + Vega-Embed v7.
-        6: {
-          vega: 'https://cdn.jsdelivr.net/npm/vega@6/build/vega.min.js',
-          vegaLite: 'https://cdn.jsdelivr.net/npm/vega-lite@6/build/vega-lite.min.js',
-          vegaEmbed: 'https://cdn.jsdelivr.net/npm/vega-embed@7/build/vega-embed.min.js',
-        },
-      } as const;
-
-      const cdnOverrides = options.cdn ?? {};
-
-      const liveBootstrap =
-        diagramMode !== 'live'
-          ? ''
-          : `
-  <!-- md2x live diagram renderer (CDN) -->
-  <script>
-  (function () {
-    const themeConfig = ${JSON.stringify(themeConfig ?? null)};
-    const baseHref = ${JSON.stringify(baseHref)};
-    const cdnOverrides = ${JSON.stringify(cdnOverrides)};
-    const cdnBaseDefaults = ${JSON.stringify(cdnBaseDefaults)};
-    const cdnVegaDefaultsByMajor = ${JSON.stringify(cdnVegaDefaultsByMajor)};
-
-    function loadScript(src) {
-      return new Promise((resolve, reject) => {
-        const s = document.createElement('script');
-        s.src = src;
-        s.async = false;
-        s.onload = () => resolve();
-        s.onerror = () => reject(new Error('Failed to load script: ' + src));
-        document.head.appendChild(s);
-      });
-    }
-
-    function getLangFromCodeClass(codeEl) {
-      const cls = (codeEl && codeEl.className) ? String(codeEl.className) : '';
-      const m = cls.match(/\\blanguage-([a-z0-9-]+)\\b/i);
-      return m ? m[1] : '';
-    }
-
-    function normalizeLang(lang) {
-      const l = String(lang || '').toLowerCase();
-      if (l === 'graphviz' || l === 'gv') return 'dot';
-      if (l === 'vegalite') return 'vega-lite';
-      return l;
-    }
-
-    function guessVegaLiteSchemaMajorFromSpec(spec) {
-      if (!spec || typeof spec !== 'object') return null;
-      const schema = spec.$schema;
-      if (typeof schema !== 'string') return null;
-      const m = schema.match(/\\/vega-lite\\/v(\\d+)(?:\\.|\\.json|$)/i) || schema.match(/\\/v(\\d+)\\.json$/i);
-      if (!m) return null;
-      const major = parseInt(m[1], 10);
-      return Number.isFinite(major) ? major : null;
-    }
-
-    function guessVegaLiteSchemaMajorFromText(text) {
-      const t = String(text || '');
-      const m = t.match(/\\/vega-lite\\/v(\\d+)(?:\\.|\\.json|$)/i) || t.match(/\\/v(\\d+)\\.json$/i);
-      if (!m) return null;
-      const major = parseInt(m[1], 10);
-      return Number.isFinite(major) ? major : null;
-    }
-
-    function detectVegaLiteMajorFromDocument() {
-      // Scan vega-lite blocks and pick a major version based on $schema.
-      const blocks = Array.from(document.querySelectorAll('pre > code'));
-      let detected = null;
-      for (const codeEl of blocks) {
-        const langRaw = getLangFromCodeClass(codeEl);
-        const lang = normalizeLang(langRaw);
-        if (lang !== 'vega-lite') continue;
-
-        const text = (codeEl && codeEl.textContent) ? codeEl.textContent : '';
-        if (!text.trim()) continue;
-
-        // Prefer a regex scan first so we can still detect schema versions for
-        // code blocks that aren't strictly valid JSON (e.g. trailing commas).
-        const majorFromText = guessVegaLiteSchemaMajorFromText(text);
-        if (majorFromText && (majorFromText === 5 || majorFromText === 6)) {
-          detected = majorFromText;
-          if (majorFromText === 6) return 6;
-          continue;
-        }
-
-        try {
-          const spec = JSON.parse(text);
-          const major = guessVegaLiteSchemaMajorFromSpec(spec);
-          if (major && (major === 5 || major === 6)) {
-            detected = major;
-            // If any block is v6, prefer v6. Otherwise keep v5.
-            if (major === 6) return 6;
-          }
-        } catch {
-          // ignore parse errors
-        }
-      }
-      return detected || 6;
-    }
-
-    async function ensureCdnLibsLoaded() {
-      const major = detectVegaLiteMajorFromDocument();
-      const vegaDefaults = cdnVegaDefaultsByMajor[String(major)] || cdnVegaDefaultsByMajor['6'];
-      const cdn = Object.assign({}, cdnBaseDefaults, vegaDefaults, cdnOverrides || {});
-
-      // Load order matters.
-      await loadScript(cdn.mermaid);
-      if (cdn.vizGlobal) {
-        await loadScript(cdn.vizGlobal);
-      } else {
-        await loadScript(cdn.viz);
-        await loadScript(cdn.vizRender);
-      }
-      await loadScript(cdn.vega);
-      await loadScript(cdn.vegaLite);
-      await loadScript(cdn.vegaEmbed);
-      await loadScript(cdn.infographic);
-    }
-
-    function replacePreWithContainer(preEl, kind) {
-      const wrapper = document.createElement('div');
-      wrapper.className = 'md2x-diagram';
-      wrapper.setAttribute('data-md2x-diagram-kind', kind);
-      wrapper.style.maxWidth = '100%';
-      const inner = document.createElement('div');
-      inner.className = 'md2x-diagram-inner';
-      inner.style.display = 'inline-block';
-      inner.style.maxWidth = '100%';
-      const mount = document.createElement('div');
-      mount.className = 'md2x-diagram-mount';
-      mount.style.maxWidth = '100%';
-      inner.appendChild(mount);
-      wrapper.appendChild(inner);
-      preEl.replaceWith(wrapper);
-      return mount;
-    }
-
-    function getText(codeEl) {
-      return (codeEl && codeEl.textContent) ? codeEl.textContent : '';
-    }
-
-    async function renderMermaid(code, mount, id) {
-      const mermaid = window.mermaid;
-      if (!mermaid) return;
-      mermaid.initialize({
-        startOnLoad: false,
-        theme: 'default',
-        securityLevel: 'loose',
-        fontFamily: themeConfig && themeConfig.fontFamily ? themeConfig.fontFamily : undefined,
-      });
-      const out = await mermaid.render('md2x-mermaid-' + id, code);
-      mount.innerHTML = out && out.svg ? out.svg : '';
-    }
-
-    async function renderDot(code, mount) {
-      const VizGlobal = window.Viz;
-      // Preferred: @viz-js/viz global build
-      if (VizGlobal && typeof VizGlobal.instance === 'function') {
-        const viz = await VizGlobal.instance();
-        const svgEl = viz.renderSVGElement(code, { graphAttributes: { bgcolor: 'transparent' } });
-        mount.appendChild(svgEl);
-        return;
-      }
-
-      // Legacy: viz.js
-      if (typeof window.Viz === 'function') {
-        const viz = new window.Viz();
-        const svgEl = await viz.renderSVGElement(code);
-        mount.appendChild(svgEl);
-      }
-    }
-
-    function applyDefaultVegaLiteSort(spec) {
-      // If users mark a field as ordinal, a common expectation is "use the data order"
-      // (e.g. '1月'...'12月'). Vega-Lite defaults to sorting discrete domains, which can
-      // produce surprising orders for stringified numbers. We only change behavior
-      // when the author hasn't specified an explicit sort.
-      const applyOne = (s) => {
-        if (!s || typeof s !== 'object') return;
-        const enc = s.encoding;
-        const x = enc && enc.x;
-        if (x && typeof x === 'object' && x.type === 'ordinal' && !('sort' in x)) {
-          x.sort = null;
-        }
-      };
-
-      const walk = (s) => {
-        if (!s || typeof s !== 'object') return;
-        applyOne(s);
-
-        const arrays = ['layer', 'hconcat', 'vconcat', 'concat'];
-        for (const key of arrays) {
-          const childArr = s[key];
-          if (Array.isArray(childArr)) {
-            for (const child of childArr) walk(child);
-          }
-        }
-        if (s.spec) walk(s.spec);
-      };
-
-      walk(spec);
-    }
-
-    async function renderVegaLite(code, mount) {
-      const vegaEmbed = window.vegaEmbed;
-      if (typeof vegaEmbed !== 'function') return;
-      let spec;
-      try {
-        spec = JSON.parse(code);
-      } catch {
-        mount.textContent = 'Invalid Vega-Lite JSON.';
-        return;
-      }
-      applyDefaultVegaLiteSort(spec);
-      await vegaEmbed(mount, spec, {
-        actions: false,
-        renderer: 'svg',
-        defaultStyle: true,
-        logLevel: (window.vega && window.vega.Warn) ? window.vega.Warn : undefined,
-      });
-    }
-
-    async function renderInfographic(code, mount) {
-      const lib = window.AntVInfographic;
-      if (!lib || !lib.Infographic) return;
-
-      try {
-        if (typeof lib.setDefaultFont === 'function') {
-          const ff = themeConfig && themeConfig.fontFamily ? themeConfig.fontFamily : undefined;
-          if (ff) lib.setDefaultFont(ff);
-        }
-      } catch {}
-
-      const opts = {
-        container: mount,
-        width: 900,
-        height: 600,
-        padding: 24,
-      };
-
-      if (themeConfig && themeConfig.diagramStyle === 'handDrawn') {
-        opts.themeConfig = { stylize: { type: 'rough', roughness: 0.5, bowing: 0.5 } };
-      }
-
-      const ig = new lib.Infographic(opts);
-      await new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error('Infographic render timeout after 10s')), 10000);
-        ig.on && ig.on('rendered', () => { clearTimeout(timeout); resolve(); });
-        ig.on && ig.on('error', (err) => { clearTimeout(timeout); reject(err); });
-        try {
-          ig.render(code);
-        } catch (e) {
-          clearTimeout(timeout);
-          reject(e);
-        }
-      }).catch(() => {
-        // keep container content on errors
-      });
-    }
-
-    async function main() {
-      // Best-effort base href: some renderers may load assets relative to document.
-      try {
-        if (baseHref) {
-          let base = document.querySelector('base');
-          if (!base) {
-            base = document.createElement('base');
-            document.head.appendChild(base);
-          }
-          base.href = baseHref;
-        }
-      } catch {}
-
-      try {
-        await ensureCdnLibsLoaded();
-      } catch (e) {
-        // If CDN scripts fail to load, keep code blocks as-is.
-        return;
-      }
-
-      const blocks = Array.from(document.querySelectorAll('pre > code'));
-      let idx = 0;
-      for (const codeEl of blocks) {
-        const pre = codeEl && codeEl.parentElement;
-        if (!pre) continue;
-        const langRaw = getLangFromCodeClass(codeEl);
-        if (!langRaw) continue;
-        const lang = normalizeLang(langRaw);
-        const code = getText(codeEl);
-        if (!code.trim()) continue;
-
-        try {
-          if (lang === 'mermaid') {
-            const mount = replacePreWithContainer(pre, 'mermaid');
-            await renderMermaid(code, mount, idx++);
-          } else if (lang === 'dot') {
-            const mount = replacePreWithContainer(pre, 'dot');
-            await renderDot(code, mount);
-          } else if (lang === 'vega-lite') {
-            const mount = replacePreWithContainer(pre, 'vega-lite');
-            await renderVegaLite(code, mount);
-          } else if (lang === 'infographic') {
-            const mount = replacePreWithContainer(pre, 'infographic');
-            await renderInfographic(code, mount);
-          }
-        } catch {
-          // Keep original code block on error
-        }
-      }
-    }
-
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', () => { main(); }, { once: true });
-    } else {
-      main();
-    }
-  })();
-  </script>`;
+      // Reuse the same live bootstrap as image export so HTML and image captures behave consistently.
+      const liveBootstrap = diagramMode === 'live'
+        ? buildLiveDiagramBootstrap(themeConfig ?? null, baseHref, options.cdn)
+        : '';
 
       return `<!DOCTYPE html>
 <html lang="en">

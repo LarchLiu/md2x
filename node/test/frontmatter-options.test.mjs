@@ -58,4 +58,22 @@ describe('frontMatterToOptions', () => {
     const options = api.frontMatterToOptions(parsed.data);
     assert.strictEqual(options.diagramMode, 'img');
   });
+
+  test('converts image options (split + selector)', () => {
+    const content = `---\nformat: png\ndiagramMode: img\nimage:\n  selector:\n    - 'div.md2x-diagram[data-md2x-diagram-kind=\"mermaid\"]'\n    - 'div.md2x-diagram[data-md2x-diagram-kind=\"infographic\"]'\n  selectorMode: stitch\n  selectorGap: 12\n  selectorPadding: 8\n  split: auto\n  splitMaxPixelHeight: 12000\n  splitOverlapPx: 80\n---\n# Hello\n`;
+    const parsed = api.parseFrontMatter(content);
+    const options = api.frontMatterToOptions(parsed.data);
+    assert.strictEqual(options.format, 'png');
+    assert.strictEqual(options.diagramMode, 'img');
+    assert.deepStrictEqual(options.image?.selector, [
+      'div.md2x-diagram[data-md2x-diagram-kind="mermaid"]',
+      'div.md2x-diagram[data-md2x-diagram-kind="infographic"]',
+    ]);
+    assert.strictEqual(options.image?.selectorMode, 'stitch');
+    assert.strictEqual(options.image?.selectorGap, 12);
+    assert.strictEqual(options.image?.selectorPadding, 8);
+    assert.strictEqual(options.image?.split, 'auto');
+    assert.strictEqual(options.image?.splitMaxPixelHeight, 12000);
+    assert.strictEqual(options.image?.splitOverlapPx, 80);
+  });
 });

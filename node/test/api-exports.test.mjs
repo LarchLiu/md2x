@@ -42,4 +42,12 @@ describe('API exports', () => {
   test('markdownToHtmlBuffer is exported', () => {
     assert.strictEqual(typeof api.markdownToHtmlBuffer, 'function');
   });
+
+  test('markdownToImageBuffer is exported', () => {
+    assert.strictEqual(typeof api.markdownToImageBuffer, 'function');
+  });
+
+  test('markdownToImageBuffers is exported', () => {
+    assert.strictEqual(typeof api.markdownToImageBuffers, 'function');
+  });
 });

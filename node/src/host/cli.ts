@@ -1,6 +1,6 @@
 /**
  * Markdown to PDF/DOCX Node Tool - CLI Entry Point
- * Convert markdown files to PDF/DOCX/HTML
+ * Convert markdown files to PDF/DOCX/HTML/Image
  *
  * Usage:
  *   npx md2x input.md [output.pdf] [--theme <theme>]
@@ -23,6 +23,7 @@ import {
   type DiagramMode,
   parseFrontMatter,
   frontMatterToOptions,
+  formatToExtension,
   convert,
 } from './index';
 
@@ -52,6 +53,18 @@ interface NodeOptions {
   hrPageBreak: boolean | null;
   /** Track which options were explicitly set via CLI args */
   _explicit: Set<string>;
+}
+
+function inferFormatFromOutputPath(outputPath: string): OutputFormat | null {
+  const ext = path.extname(outputPath).toLowerCase();
+  if (ext === '.pdf') return 'pdf';
+  if (ext === '.docx') return 'docx';
+  if (ext === '.html' || ext === '.htm') return 'html';
+  if (ext === '.png') return 'png';
+  if (ext === '.jpg') return 'jpg';
+  if (ext === '.jpeg') return 'jpeg';
+  if (ext === '.webp') return 'webp';
+  return null;
 }
 
 function resolveThemePresetsDir(): string | null {
@@ -109,7 +122,7 @@ function formatThemeList(themes: string[]): string {
 function printHelp(): void {
   const themes = getAvailableThemes();
   console.log(`
-md2x - Convert Markdown to PDF, DOCX, or HTML
+md2x - Convert Markdown to PDF, DOCX, HTML, or Image
 
 Usage:
   npx md2x <input.md> [output] [options]
@@ -121,12 +134,12 @@ Arguments:
 
 Options:
   -o, --output      Output file path
-  -f, --format      Output format: pdf, docx, or html (default: "pdf")
+  -f, --format      Output format: pdf, docx, html, png, jpg/jpeg, or webp (default: "pdf")
   -t, --theme       Theme name (default: "default")
   -h, --help        Show this help message
   -v, --version     Show version number
-  --diagram-mode    HTML only: img | live | none (default: live)
-  --hr-page-break   Convert horizontal rules to page breaks: true | false (default: true for PDF/DOCX; false for HTML)
+  --diagram-mode    HTML/Image: img | live | none (default: live for HTML/Image)
+  --hr-page-break   Convert horizontal rules to page breaks: true | false (default: true for PDF/DOCX; false for HTML/Image)
   --list-themes     List all available themes
 
 Examples:
@@ -136,6 +149,7 @@ Examples:
   npx md2x README.md -f docx --hr-page-break false
   npx md2x README.md -f docx -o output.docx --theme minimal
   npx md2x README.md -f html -o output.html
+  npx md2x README.md -f png -o output.png
   npx md2x --list-themes
 
 Available Themes:
@@ -240,14 +254,14 @@ function parseArgs(args: string[]): NodeOptions {
       i++;
       if (i < args.length) {
         const fmt = args[i].toLowerCase();
-        if (fmt !== 'pdf' && fmt !== 'docx' && fmt !== 'html') {
-          console.error(`Error: Invalid format "${args[i]}". Must be "pdf", "docx", or "html".`);
+        if (fmt !== 'pdf' && fmt !== 'docx' && fmt !== 'html' && fmt !== 'png' && fmt !== 'jpg' && fmt !== 'jpeg' && fmt !== 'webp') {
+          console.error(`Error: Invalid format "${args[i]}". Must be "pdf", "docx", "html", "png", "jpg/jpeg", or "webp".`);
           process.exit(1);
         }
         options.format = fmt as OutputFormat;
         options._explicit.add('format');
       } else {
-        console.error('Error: --format requires a format (pdf, docx, or html)');
+        console.error('Error: --format requires a format (pdf, docx, html, png, jpg/jpeg, or webp)');
         process.exit(1);
       }
     } else if (arg === '--hr-page-break') {
@@ -334,12 +348,28 @@ async function main(): Promise<void> {
   const fmOptions = fm.hasFrontMatter ? frontMatterToOptions(fm.data) : {};
 
   // Merge options: CLI args that are explicitly set take precedence over front matter
-  const format = options._explicit.has('format') ? options.format : (fmOptions.format ?? options.format);
+  const inferredFormatFromOutput = !options._explicit.has('format') && options.output
+    ? inferFormatFromOutputPath(options.output)
+    : null;
+  const format = options._explicit.has('format')
+    ? options.format
+    : (fmOptions.format ?? inferredFormatFromOutput ?? options.format);
   const theme = options._explicit.has('theme') ? options.theme : (fmOptions.theme ?? options.theme);
-  const diagramMode = options._explicit.has('diagramMode') ? options.diagramMode : (fmOptions.diagramMode ?? options.diagramMode);
+  const isImage = format === 'png' || format === 'jpg' || format === 'jpeg' || format === 'webp';
+  // CLI defaults should match help text:
+  // - HTML: diagramMode defaults to "live"
+  // - Image: diagramMode defaults to "live"
+  // Note: "live" needs network access in the browser context (CDN scripts). Use --diagram-mode img for offline.
+  const defaultDiagramMode: DiagramMode | null =
+    format === 'html' ? 'live'
+      : isImage ? 'live'
+        : null;
+  const diagramMode = options._explicit.has('diagramMode')
+    ? options.diagramMode
+    : (fmOptions.diagramMode ?? defaultDiagramMode ?? options.diagramMode);
   const hrAsPageBreak = options._explicit.has('hrPageBreak')
     ? options.hrPageBreak!
-    : (fmOptions.hrAsPageBreak ?? (format === 'html' ? false : true));
+    : (fmOptions.hrAsPageBreak ?? (format === 'html' || format === 'png' || format === 'jpg' || format === 'jpeg' || format === 'webp' ? false : true));
 
   // Validate theme (CLI-specific validation with helpful error messages)
   const availableThemes = getAvailableThemes();
@@ -355,29 +385,14 @@ async function main(): Promise<void> {
   console.log(`Format: ${format.toUpperCase()}`);
   console.log(`Theme: ${theme}`);
   console.log(`HR as page break: ${hrAsPageBreak}`);
-  if (format === 'html') {
+  if (format === 'html' || format === 'png' || format === 'jpg' || format === 'jpeg' || format === 'webp') {
     console.log(`Diagram mode: ${diagramMode}`);
   }
 
   try {
-    // Use convert() directly with skipFrontMatter since we already parsed it
-    const result = await convert(fm.content, {
-      format,
-      theme,
-      diagramMode,
-      hrAsPageBreak,
-      basePath: path.dirname(inputPath),
-      title: fmOptions.title ?? path.basename(inputPath, path.extname(inputPath)),
-      pdf: fmOptions.pdf,
-      standalone: fmOptions.standalone,
-      baseTag: fmOptions.baseTag,
-      cdn: fmOptions.cdn,
-      skipFrontMatter: true,
-    });
-
     // Determine output path
     let outputPath = options.output;
-    const outputExt = format === 'pdf' ? '.pdf' : format === 'docx' ? '.docx' : '.html';
+    const outputExt = formatToExtension(format);
     if (!outputPath) {
       const inputDir = path.dirname(inputPath);
       const inputName = path.basename(inputPath, path.extname(inputPath));
@@ -391,8 +406,57 @@ async function main(): Promise<void> {
     if (!fs.existsSync(outputDir)) {
       fs.mkdirSync(outputDir, { recursive: true });
     }
-    fs.writeFileSync(outputPath, result.buffer);
 
+    // Use convert() for all formats (including images).
+    // For images, `convert()` may return multiple parts via `result.buffers` when `image.split` is enabled.
+    const image = isImage
+      ? ({
+        ...(fmOptions.image ?? {}),
+        type: format === 'jpg' ? 'jpeg' : format,
+        // Default to auto-splitting for CLI to avoid repeated tiles on very tall pages.
+        split: (fmOptions.image as any)?.split ?? 'auto',
+      } as any)
+      : undefined;
+
+    const result = await convert(fm.content, {
+      format,
+      theme,
+      diagramMode,
+      hrAsPageBreak,
+      basePath: path.dirname(inputPath),
+      title: fmOptions.title ?? path.basename(inputPath, path.extname(inputPath)),
+      pdf: fmOptions.pdf,
+      standalone: fmOptions.standalone,
+      baseTag: fmOptions.baseTag,
+      cdn: fmOptions.cdn,
+      image,
+      skipFrontMatter: true,
+    });
+
+    if (isImage) {
+      const buffers = result.buffers && result.buffers.length > 0 ? result.buffers : [result.buffer];
+      if (buffers.length <= 1) {
+        fs.writeFileSync(outputPath, buffers[0]);
+        console.log(`Output: ${outputPath}`);
+        console.log('Done!');
+        return;
+      }
+
+      const base = outputPath.endsWith(outputExt) ? outputPath.slice(0, -outputExt.length) : outputPath;
+      const paths: string[] = [];
+      for (let i = 0; i < buffers.length; i++) {
+        const part = String(i + 1).padStart(3, '0');
+        const p = `${base}.part-${part}${outputExt}`;
+        fs.writeFileSync(p, buffers[i]);
+        paths.push(p);
+      }
+
+      console.log(`Output: ${paths[0]} (+${paths.length - 1} parts)`);
+      console.log('Done!');
+      return;
+    }
+
+    fs.writeFileSync(outputPath, result.buffer);
     console.log(`Output: ${outputPath}`);
     console.log('Done!');
   } catch (error) {

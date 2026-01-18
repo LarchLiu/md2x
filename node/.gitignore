@@ -4,3 +4,8 @@
 /test/**/*.pdf
 /test/**/*.docx
 /test/**/*.html
+/test/**/*.png
+/test/**/*.jpg
+/test/**/*.jpeg
+/test/**/*.webp
+/test/demo/test-image-split*.md

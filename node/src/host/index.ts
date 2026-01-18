@@ -6,14 +6,14 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import yaml from 'js-yaml'
-import { NodeDocxExporter, NodeHtmlExporter, NodePdfExporter } from './node-exporter';
-import type { Md2DocxOptions, Md2PdfOptions, Md2HtmlOptions } from './node-exporter';
+import { NodeDocxExporter, NodeHtmlExporter, NodePdfExporter, NodeImageExporter } from './node-exporter';
+import type { Md2DocxOptions, Md2PdfOptions, Md2HtmlOptions, Md2ImageOptions } from './node-exporter';
 
 // ============================================================================
 // Shared types and utilities
 // ============================================================================
 
-export type OutputFormat = 'docx' | 'pdf' | 'html';
+export type OutputFormat = 'docx' | 'pdf' | 'html' | 'png' | 'jpg' | 'jpeg' | 'webp';
 
 export type DiagramMode = 'img' | 'live' | 'none';
 
@@ -24,6 +24,8 @@ export interface FrontMatterOptions {
   theme?: string;
   format?: OutputFormat;
   hrAsPageBreak?: boolean;
+  // Image-specific options
+  image?: Md2ImageOptions['image'];
   // HTML-specific options
   title?: string;
   standalone?: boolean;
@@ -61,8 +63,95 @@ export function frontMatterToOptions(data: FrontMatterData): FrontMatterOptions 
 
   if (typeof data.format === 'string') {
     const fmt = data.format.toLowerCase();
-    if (fmt === 'pdf' || fmt === 'docx' || fmt === 'html') {
+    if (fmt === 'pdf' || fmt === 'docx' || fmt === 'html' || fmt === 'png' || fmt === 'jpg' || fmt === 'jpeg' || fmt === 'webp') {
       out.format = fmt;
+    }
+  }
+
+  if (data.image && typeof data.image === 'object') {
+    const img = data.image as any;
+    const image: NonNullable<FrontMatterOptions['image']> = {};
+
+    if (typeof img.type === 'string') {
+      const t = img.type.toLowerCase();
+      if (t === 'png' || t === 'jpeg' || t === 'webp') image.type = t;
+      if (t === 'jpg') image.type = 'jpeg';
+    }
+    if (typeof img.quality === 'number' && Number.isFinite(img.quality)) {
+      image.quality = img.quality;
+    }
+    if (typeof img.maxPixelWidth === 'number' && Number.isFinite(img.maxPixelWidth)) {
+      image.maxPixelWidth = img.maxPixelWidth;
+    }
+    if (typeof img.split === 'boolean') {
+      image.split = img.split;
+    } else if (typeof img.split === 'string' && img.split.toLowerCase() === 'auto') {
+      image.split = 'auto';
+    }
+    if (typeof img.splitMaxPixelHeight === 'number' && Number.isFinite(img.splitMaxPixelHeight)) {
+      image.splitMaxPixelHeight = img.splitMaxPixelHeight;
+    }
+    if (typeof img.splitOverlapPx === 'number' && Number.isFinite(img.splitOverlapPx)) {
+      image.splitOverlapPx = img.splitOverlapPx;
+    }
+    if (typeof img.fullPage === 'boolean') {
+      image.fullPage = img.fullPage;
+    }
+    if (typeof img.selector === 'string') {
+      image.selector = img.selector;
+    } else if (Array.isArray(img.selector)) {
+      // Multiple selectors are treated as a selector list (CSS comma-separated union).
+      image.selector = img.selector.filter((s: unknown) => typeof s === 'string');
+    }
+    if (typeof img.selectorMode === 'string') {
+      const m = img.selectorMode.toLowerCase();
+      if (m === 'first' || m === 'each' || m === 'union' || m === 'stitch') {
+        image.selectorMode = m;
+      }
+    }
+    if (typeof img.selectorPadding === 'number' && Number.isFinite(img.selectorPadding)) {
+      image.selectorPadding = img.selectorPadding;
+    }
+    // Only used when `image.selectorMode: "stitch"` (space between stitched elements).
+    if (typeof img.selectorGap === 'number' && Number.isFinite(img.selectorGap)) {
+      image.selectorGap = img.selectorGap;
+    }
+    if (typeof img.scrollToLoad === 'boolean') {
+      image.scrollToLoad = img.scrollToLoad;
+    }
+    if (img.scroll && typeof img.scroll === 'object') {
+      const s = img.scroll as any;
+      const scroll: any = {};
+      if (typeof s.stepPx === 'number' && Number.isFinite(s.stepPx)) scroll.stepPx = s.stepPx;
+      if (typeof s.delayMs === 'number' && Number.isFinite(s.delayMs)) scroll.delayMs = s.delayMs;
+      if (typeof s.maxSteps === 'number' && Number.isFinite(s.maxSteps)) scroll.maxSteps = s.maxSteps;
+      if (typeof s.maxTimeMs === 'number' && Number.isFinite(s.maxTimeMs)) scroll.maxTimeMs = s.maxTimeMs;
+      if (Object.keys(scroll).length > 0) image.scroll = scroll;
+    }
+    if (typeof img.omitBackground === 'boolean') {
+      image.omitBackground = img.omitBackground;
+    }
+    if (typeof img.fromSurface === 'boolean') {
+      image.fromSurface = img.fromSurface;
+    }
+    if (typeof img.captureBeyondViewport === 'boolean') {
+      image.captureBeyondViewport = img.captureBeyondViewport;
+    }
+    if (img.viewport && typeof img.viewport === 'object') {
+      const vp = img.viewport as any;
+      const viewport: NonNullable<NonNullable<FrontMatterOptions['image']>['viewport']> = {};
+      if (typeof vp.width === 'number' && Number.isFinite(vp.width)) viewport.width = vp.width;
+      if (typeof vp.height === 'number' && Number.isFinite(vp.height)) viewport.height = vp.height;
+      if (typeof vp.deviceScaleFactor === 'number' && Number.isFinite(vp.deviceScaleFactor)) {
+        viewport.deviceScaleFactor = vp.deviceScaleFactor;
+      }
+      if (Object.keys(viewport).length > 0) {
+        image.viewport = viewport;
+      }
+    }
+
+    if (Object.keys(image).length > 0) {
+      out.image = image;
     }
   }
 
@@ -107,8 +196,36 @@ export interface ConvertResult {
   buffer: Buffer;
   /** Resolved output path */
   outputPath: string;
+  /**
+   * When converting to an image format with splitting enabled, multiple parts may be produced.
+   * In that case, `buffer`/`outputPath` refer to the first part, and the full list is in
+   * `buffers`/`outputPaths`.
+   */
+  buffers?: Buffer[];
+  outputPaths?: string[];
   /** Output format used */
   format: OutputFormat;
+}
+
+export function formatToExtension(format: OutputFormat): string {
+  switch (format) {
+    case 'pdf':
+      return '.pdf';
+    case 'docx':
+      return '.docx';
+    case 'html':
+      return '.html';
+    case 'png':
+      return '.png';
+    case 'webp':
+      return '.webp';
+    case 'jpeg':
+      return '.jpeg';
+    case 'jpg':
+      return '.jpg';
+    default:
+      return '.pdf';
+  }
 }
 
 export async function markdownToDocxBuffer(markdown: string, options: Md2DocxOptions = {}): Promise<Buffer> {
@@ -131,12 +248,35 @@ export async function markdownToHtmlBuffer(markdown: string, options: Md2HtmlOpt
   return exporter.exportToBuffer(markdown, options);
 }
 
+export async function markdownToImageBuffer(markdown: string, options: Md2ImageOptions = {}): Promise<Buffer> {
+  const exporter = new NodeImageExporter();
+  return exporter.exportToBuffer(markdown, options);
+}
+
+export async function markdownToImageBuffers(markdown: string, options: Md2ImageOptions = {}): Promise<Buffer[]> {
+  const exporter = new NodeImageExporter();
+  return exporter.exportToBuffers(markdown, options);
+}
+
 function inferFormatFromPath(outputPath: string): OutputFormat | null {
   const ext = path.extname(outputPath).toLowerCase();
   if (ext === '.pdf') return 'pdf';
   if (ext === '.docx') return 'docx';
   if (ext === '.html' || ext === '.htm') return 'html';
+  if (ext === '.png') return 'png';
+  if (ext === '.jpg') return 'jpg';
+  if (ext === '.jpeg') return 'jpeg';
+  if (ext === '.webp') return 'webp';
   return null;
+}
+
+function isImageFormat(format: OutputFormat): format is Extract<OutputFormat, 'png' | 'jpg' | 'jpeg' | 'webp'> {
+  return format === 'png' || format === 'jpg' || format === 'jpeg' || format === 'webp';
+}
+
+function normalizeImageType(format: Extract<OutputFormat, 'png' | 'jpg' | 'jpeg' | 'webp'>): NonNullable<Md2ImageOptions['image']>['type'] {
+  if (format === 'jpg') return 'jpeg';
+  return format;
 }
 
 /**
@@ -160,7 +300,7 @@ function inferFormatFromPath(outputPath: string): OutputFormat | null {
 export async function convert(
   markdown: string,
   options: ConvertOptions = {}
-): Promise<{ buffer: Buffer; format: OutputFormat }> {
+): Promise<{ buffer: Buffer; format: OutputFormat; buffers?: Buffer[] }> {
   // Skip front matter parsing if already processed by caller
   const fm = options.skipFrontMatter
     ? { content: markdown, data: {}, hasFrontMatter: false }
@@ -169,12 +309,16 @@ export async function convert(
 
   const format = options.format ?? fmOptions.format ?? 'pdf';
   const theme = options.theme ?? fmOptions.theme ?? 'default';
-  const diagramMode = options.diagramMode ?? fmOptions.diagramMode ?? 'live';
-  const hrAsPageBreak = options.hrAsPageBreak ?? fmOptions.hrAsPageBreak ?? (format === 'html' ? false : true);
+  // Defaults: keep "live" unless the caller/front matter overrides it.
+  // Note: "live" requires network access inside the browser context to load CDN scripts.
+  const defaultDiagramMode: DiagramMode = 'live';
+  const diagramMode = options.diagramMode ?? fmOptions.diagramMode ?? defaultDiagramMode;
+  const hrAsPageBreak = options.hrAsPageBreak ?? fmOptions.hrAsPageBreak ?? (format === 'html' || isImageFormat(format) ? false : true);
   const basePath = options.basePath ?? process.cwd();
   const markdownContent = fm.content;
 
   let buffer: Buffer;
+  let buffers: Buffer[] | undefined;
 
   if (format === 'pdf') {
     buffer = await markdownToPdfBuffer(markdownContent, {
@@ -193,7 +337,7 @@ export async function convert(
       basePath,
       hrAsPageBreak,
     });
-  } else {
+  } else if (format === 'html') {
     buffer = await markdownToHtmlBuffer(markdownContent, {
       theme,
       basePath,
@@ -204,9 +348,25 @@ export async function convert(
       baseTag: options.baseTag ?? fmOptions.baseTag,
       cdn: options.cdn ?? fmOptions.cdn,
     });
+  } else {
+    const rawImageOptions = options.image ?? fmOptions.image;
+    const image = rawImageOptions?.type ? rawImageOptions : { ...(rawImageOptions ?? {}), type: normalizeImageType(format) };
+    // Image conversion can produce multiple parts when `image.split` is enabled.
+    buffers = await markdownToImageBuffers(markdownContent, {
+      theme,
+      basePath,
+      hrAsPageBreak,
+      image,
+      diagramMode,
+      cdn: options.cdn ?? fmOptions.cdn,
+    });
+    if (!buffers.length) {
+      throw new Error('Image conversion produced no output');
+    }
+    buffer = buffers[0];
   }
 
-  return { buffer, format };
+  return { buffer, format, buffers: buffers && buffers.length > 1 ? buffers : undefined };
 }
 
 /**
@@ -274,7 +434,7 @@ export async function convertFile(
   } else {
     const inputDir = path.dirname(resolvedInputPath);
     const inputName = path.basename(resolvedInputPath, path.extname(resolvedInputPath));
-    const outputExt = result.format === 'pdf' ? '.pdf' : result.format === 'docx' ? '.docx' : '.html';
+    const outputExt = formatToExtension(result.format);
     resolvedOutputPath = path.join(inputDir, `${inputName}${outputExt}`);
   }
 
@@ -283,6 +443,28 @@ export async function convertFile(
   if (!fs.existsSync(outputDir)) {
     fs.mkdirSync(outputDir, { recursive: true });
   }
+  // If the conversion produced multiple image parts, write them as `<name>.part-001.png`, etc.
+  if (isImageFormat(result.format) && result.buffers && result.buffers.length > 1) {
+    const bufs = result.buffers;
+    const outputExt = formatToExtension(result.format);
+    const base = resolvedOutputPath.endsWith(outputExt) ? resolvedOutputPath.slice(0, -outputExt.length) : resolvedOutputPath;
+    const outputPaths: string[] = [];
+    for (let i = 0; i < bufs.length; i++) {
+      const part = String(i + 1).padStart(3, '0');
+      const p = `${base}.part-${part}${outputExt}`;
+      fs.writeFileSync(p, bufs[i]);
+      outputPaths.push(p);
+    }
+
+    return {
+      buffer: bufs[0],
+      buffers: bufs,
+      outputPath: outputPaths[0],
+      outputPaths,
+      format: result.format,
+    };
+  }
+
   fs.writeFileSync(resolvedOutputPath, result.buffer);
 
   return {

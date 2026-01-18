@@ -9,9 +9,9 @@ const __dirname = path.dirname(__filename);
 (globalThis as any).__md2x_module_dir__ = __dirname;
 
 // Re-export from host modules
-export { NodeDocxExporter, NodeHtmlExporter, NodePdfExporter } from './host/node-exporter';
-export type { Md2DocxOptions, Md2HtmlOptions, Md2PdfOptions } from './host/node-exporter';
-export type { PdfOptions } from './host/browser-renderer';
+export { NodeDocxExporter, NodeHtmlExporter, NodePdfExporter, NodeImageExporter } from './host/node-exporter';
+export type { Md2DocxOptions, Md2HtmlOptions, Md2PdfOptions, Md2ImageOptions } from './host/node-exporter';
+export type { PdfOptions, ImageOptions } from './host/browser-renderer';
 
 export {
   // Types
@@ -27,6 +27,8 @@ export {
   markdownToPdfBuffer,
   markdownToHtmlString,
   markdownToHtmlBuffer,
+  markdownToImageBuffer,
+  markdownToImageBuffers,
   convert,
   convertFile,
 } from './host/index';
