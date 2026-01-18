@@ -11,6 +11,7 @@ import { SvgRenderer } from './svg-renderer';
 import { DotRenderer } from './dot-renderer';
 import { InfographicRenderer } from './infographic-renderer';
 import { JsonCanvasRenderer } from './canvas-renderer';
+import { Md2xRenderer } from './md2x-renderer';
 import type { BaseRenderer } from './base-renderer';
 
 // Export renderer instances array
@@ -22,5 +23,6 @@ export const renderers: BaseRenderer[] = [
   new SvgRenderer(),
   new DotRenderer(),
   new InfographicRenderer(),
-  new JsonCanvasRenderer()
+  new JsonCanvasRenderer(),
+  new Md2xRenderer()
 ];

@@ -17,6 +17,7 @@ import { SvgPlugin } from './svg-plugin';
 import { DotPlugin } from './dot-plugin';
 import { InfographicPlugin } from './infographic-plugin';
 import { JsonCanvasPlugin } from './canvas-plugin';
+import { Md2xPlugin } from './md2x-plugin';
 import { replacePlaceholderWithImage } from './plugin-html-utils';
 import { createErrorHTML } from './plugin-content-utils';
 import { convertPluginResultToDOCX } from '../exporters/docx-exporter';
@@ -72,6 +73,7 @@ export const plugins: BasePlugin[] = [
   new VegaPlugin(),
   new SvgPlugin(),
   new DotPlugin(),
+  new Md2xPlugin(),
   new InfographicPlugin(),
   new JsonCanvasPlugin()
 ];

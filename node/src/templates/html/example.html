@@ -1,0 +1,35 @@
+<div class="md2x-html-example">
+  <div class="my-component">Hello md2x! This is html template</div>
+  <div class="items"></div>
+
+  <script>
+    (() => {
+      const root = document.currentScript && document.currentScript.parentElement;
+      if (!root) return;
+
+      const data = templateData;
+      const items = root.querySelector('.items');
+      if (!items) return;
+
+      // Render a simple list: [{ title, message }, ...]
+      items.textContent = '';
+      const arr = Array.isArray(data) ? data : (data != null ? [data] : []);
+      for (let i = 0; i < arr.length; i++) {
+        const item = arr[i] || {};
+        const h2 = document.createElement('h2');
+        h2.textContent = item.title != null ? String(item.title) : '';
+        const p = document.createElement('p');
+        p.textContent = item.message != null ? String(item.message) : '';
+        items.appendChild(h2);
+        items.appendChild(p);
+      }
+    })();
+  </script>
+
+  <style>
+    .md2x-html-example .my-component {
+      color: red;
+    }
+  </style>
+</div>
+

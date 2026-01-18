@@ -18,6 +18,12 @@ import { createNodePlatform } from './node-platform';
 import { plugins } from '../../../src/plugins/index';
 import type { PluginRenderer, RendererThemeConfig } from '../../../src/types/index';
 
+export interface Md2xTemplateConfig {
+  template: string;
+  type: 'vue' | 'html';
+  data: any;
+}
+
 // Helper to get module directory - uses global set by entry point, or falls back to import.meta.url
 function getModuleDir(): string {
   if ((globalThis as any).__md2x_module_dir__) {
@@ -26,55 +32,55 @@ function getModuleDir(): string {
   return path.dirname(fileURLToPath(import.meta.url));
 }
 
-export type Md2DocxOptions = {
+export type Md2xBaseOptions = {
   theme?: string;
   basePath?: string;
-  /** When true, horizontal rules (---, ***, ___) will be converted to page breaks (default: true) */
-  hrAsPageBreak?: boolean;
-};
-
-export type Md2PdfOptions = {
-  theme?: string;
-  basePath?: string;
-  pdf?: PdfOptions;
-  /** When true, horizontal rules (---, ***, ___) will be converted to page breaks */
-  hrAsPageBreak?: boolean;
-};
-
-export type Md2ImageOptions = {
-  theme?: string;
-  basePath?: string;
-  image?: ImageOptions;
   /**
-   * Diagram rendering mode for image export:
-   * - "img": pre-render diagrams before screenshot (offline-friendly)
-   * - "live": keep code blocks and render in page via CDN scripts before screenshot
-   * - "none": do not process diagrams
+   * When true, horizontal rules (---, ***, ___) will be converted to page breaks in print/PDF.
+   * Note: this hides `<hr>` visually (default: false for HTML).
+   */
+  hrAsPageBreak?: boolean;
+  /**
+   * Diagram/template rendering mode for PDF export:
+   * - "img": pre-render diagrams before printing (default; offline-friendly)
+   * - "live": render in the browser before printing (required for md2x Vue templates)
+   * - "none": do not process diagrams/templates
    */
   diagramMode?: 'img' | 'live' | 'none';
+  /**
+   * Extra directories to search for md2x templates referenced by ` ```md2x ` blocks.
+   * Useful when templates live outside the markdown folder.
+   *
+   * Can be a single path or a list of paths. Relative paths are resolved against `basePath`.
+   */
+  templatesDir?: string | string[];
+};
+
+export type Md2DocxOptions = Md2xBaseOptions;
+
+export type Md2PdfOptions = Md2xBaseOptions & {
+  pdf?: PdfOptions;
+  /**
+   * CDN overrides for live mode.
+   * Same shape as HTML export's `cdn` option.
+   */
+  cdn?: Md2HtmlOptions['cdn'];
+};
+
+export type Md2ImageOptions = Md2xBaseOptions & {
+  image?: ImageOptions;
   /**
    * CDN overrides for live diagram mode.
    * Same shape as HTML export's `cdn` option.
    */
   cdn?: Md2HtmlOptions['cdn'];
-  /** When true, horizontal rules (---, ***, ___) will be converted to page breaks */
-  hrAsPageBreak?: boolean;
 };
 
-export type Md2HtmlOptions = {
-  theme?: string;
-  basePath?: string;
+export type Md2HtmlOptions = Md2xBaseOptions & {
   /** Document title for standalone HTML output */
   title?: string;
   /** When true, returns a full HTML document with embedded CSS (default: true) */
   standalone?: boolean;
-  /**
-   * Diagram rendering mode (HTML export only):
-   * - "img": pre-render diagrams and embed as data: images (best for offline)
-   * - "live": keep source blocks and render in the browser on load
-   * - "none": do not process diagrams at all (keep source code blocks)
-   */
-  diagramMode?: 'img' | 'live' | 'none';
   /**
    * Optional CDN overrides (URLs). Only used when `diagramMode: "live"`.
    */
@@ -90,12 +96,11 @@ export type Md2HtmlOptions = {
     vegaLite: string;
     vegaEmbed: string;
     infographic: string;
+    /** Vue 3 global build (required for md2x vue templates in live mode) */
+    vue: string;
+    /** vue3-sfc-loader UMD (required for md2x vue templates in live mode) */
+    vueSfcLoader: string;
   }>;
-  /**
-   * When true, horizontal rules (---, ***, ___) will be converted to page breaks in print/PDF.
-   * Note: this hides `<hr>` visually (default: false for HTML).
-   */
-  hrAsPageBreak?: boolean;
   /** When true, emit a `<base href="file://.../">` tag so relative URLs resolve against basePath (default: true) */
   baseTag?: boolean;
 };
@@ -126,7 +131,9 @@ async function loadRendererThemeConfig(themeId: string): Promise<RendererThemeCo
 function createPluginRenderer(
   browserRenderer: BrowserRenderer | null,
   basePath: string,
-  themeConfig: RendererThemeConfig
+  themeConfig: RendererThemeConfig,
+  md2xTemplateFiles?: Record<string, string>,
+  cdnOverrides?: Md2HtmlOptions['cdn']
 ): PluginRenderer | null {
   if (!browserRenderer) {
     return null;
@@ -134,7 +141,19 @@ function createPluginRenderer(
 
   return {
     async render(type: string, content: string | object) {
-      const result = await browserRenderer.render(type, content, basePath, themeConfig);
+      const renderInput =
+        type === 'md2x' && typeof content === 'string'
+          ? ({
+              code: content,
+              templateFiles: md2xTemplateFiles ?? {},
+              cdn: {
+                vue: cdnOverrides?.vue,
+                vueSfcLoader: cdnOverrides?.vueSfcLoader,
+              },
+            } as any)
+          : content;
+
+      const result = await browserRenderer.render(type, renderInput, basePath, themeConfig);
       if (!result) return null;
       return result;
     },
@@ -167,15 +186,227 @@ function decodeHtmlEntities(text: string): string {
     .replace(/&#38;/g, '&');
 }
 
+function collectMd2xTemplateFiles(
+  html: string,
+  basePath: string,
+  templatesDir?: string | string[]
+): Record<string, string> {
+  // Match md2x code blocks in the HTML fragment.
+  // Same considerations as diagrams: rehype-highlight may add "hljs".
+  const codeBlockRegex = new RegExp(`<pre><code class="[^"]*\\blanguage-md2x\\b[^"]*">([\\s\\S]*?)<\\/code><\\/pre>`, 'gi');
+  const matches = [...html.matchAll(codeBlockRegex)];
+  const out: Record<string, string> = {};
+
+  const extractQuoted = (text: string, key: string): string => {
+    // Best-effort: `key: 'value'` / `key: "value"` (usually single-line).
+    // Note: intentionally does not support template literals to avoid escaping issues and surprises.
+    const m = text.match(new RegExp(`\\b${key}\\s*:\\s*(['"])([^\\n\\r]*?)\\1`, 'i'));
+    return (m?.[2] ?? '').trim();
+  };
+
+  const normalizeMd2xTemplateRef = (type: string, tpl: string): string => {
+    const t = String(type || '').trim().toLowerCase();
+    const v = String(tpl || '').trim();
+    if (!t || !v) return v;
+    // If user already provided a path/URL, keep it.
+    if (v.includes('/') || v.includes('\\') || v.includes('://') || v.startsWith('file://')) return v;
+    return `${t}/${v}`;
+  };
+
+  const normalizeTemplateDirs = (): string[] => {
+    if (!templatesDir) return [];
+    const arr = Array.isArray(templatesDir) ? templatesDir : [templatesDir];
+    return arr
+      .map((d) => String(d || '').trim())
+      .filter(Boolean);
+  };
+
+  for (const match of matches) {
+    const codeHtml = match[1] ?? '';
+    // If highlight spans are present, strip tags to recover the raw text.
+    // Important: strip tags BEFORE decoding entities, otherwise real "&lt;...&gt;" in strings would be lost.
+    const decodedCode = decodeHtmlEntities(String(codeHtml || '').replace(/<[^>]*>/g, ''));
+    const typeRef = extractQuoted(decodedCode, 'type');
+    const templateRaw = extractQuoted(decodedCode, 'template');
+    const templateRef = normalizeMd2xTemplateRef(typeRef, templateRaw);
+    if (!templateRef) continue;
+
+    const resolveExistingFilePath = (ref: string): string | null => {
+      try {
+        if (String(ref).toLowerCase().startsWith('file://')) {
+          const p = fileURLToPath(ref);
+          return fs.existsSync(p) ? p : null;
+        }
+        if (path.isAbsolute(ref)) {
+          return fs.existsSync(ref) ? ref : null;
+        }
+
+        const moduleDir = getModuleDir();
+        const extraDirs = normalizeTemplateDirs().map((d) => {
+          try {
+            if (String(d).toLowerCase().startsWith('file://')) return fileURLToPath(d);
+          } catch {}
+          // Relative template dir is resolved against basePath to match user expectations.
+          return path.isAbsolute(d) ? d : path.join(basePath, d);
+        });
+
+        const extraCandidates: string[] = [];
+        for (const dir of extraDirs) {
+          extraCandidates.push(path.join(dir, ref));
+        }
+
+        const candidates = [
+          // User templates usually live next to the markdown document (basePath).
+          path.join(basePath, ref),
+          // Optional external template dirs (CLI --template-dir).
+          ...extraCandidates,
+          // Packaged CLI may ship templates next to the module root (node/dist/templates/*).
+          path.join(moduleDir, 'templates', ref),
+          // Dev/monorepo fallback (this repo layout): node/src/templates/* (moduleDir is node/src/host).
+          path.join(moduleDir, '..', 'templates', ref),
+          // Another dev fallback when moduleDir is node/dist: node/src/templates/*.
+          path.join(moduleDir, '..', 'src', 'templates', ref),
+        ];
+        for (const p of candidates) {
+          if (fs.existsSync(p)) return p;
+        }
+        return null;
+      } catch {
+        return null;
+      }
+    };
+
+    const filePath = resolveExistingFilePath(templateRef);
+    if (!filePath) continue;
+
+    try {
+      const content = fs.readFileSync(filePath, 'utf-8');
+      const href = pathToFileURL(filePath).href;
+      // Prefer absolute file:// keys to avoid browser fetch/CORS restrictions.
+      out[href] = content;
+      // Also keep the original key as a fallback (for loaders that pass relative paths through).
+      out[templateRef] = content;
+      // And keep the raw `template:` value too (so old blocks keep working).
+      if (templateRaw) out[templateRaw] = content;
+    } catch {
+      // Skip missing templates; renderer will show a "missing template" message.
+    }
+  }
+
+  return out;
+}
+
+function collectMd2xTemplateFilesFromMarkdown(
+  markdown: string,
+  basePath: string,
+  templatesDir?: string | string[]
+): Record<string, string> {
+  // Match fenced md2x blocks:
+  // ```md2x
+  // ...
+  // ```
+  const fenceRegex = /```md2x[^\n\r]*[\r\n]([\s\S]*?)```/gi;
+  const matches = [...String(markdown || '').matchAll(fenceRegex)];
+  const out: Record<string, string> = {};
+
+  const extractQuoted = (text: string, key: string): string => {
+    const m = text.match(new RegExp(`\\b${key}\\s*:\\s*(['"])([^\\n\\r]*?)\\1`, 'i'));
+    return (m?.[2] ?? '').trim();
+  };
+
+  const normalizeMd2xTemplateRef = (type: string, tpl: string): string => {
+    const t = String(type || '').trim().toLowerCase();
+    const v = String(tpl || '').trim();
+    if (!t || !v) return v;
+    if (v.includes('/') || v.includes('\\') || v.includes('://') || v.startsWith('file://')) return v;
+    return `${t}/${v}`;
+  };
+
+  const normalizeTemplateDirs = (): string[] => {
+    if (!templatesDir) return [];
+    const arr = Array.isArray(templatesDir) ? templatesDir : [templatesDir];
+    return arr
+      .map((d) => String(d || '').trim())
+      .filter(Boolean);
+  };
+
+  const resolveExistingFilePath = (ref: string): string | null => {
+    try {
+      if (String(ref).toLowerCase().startsWith('file://')) {
+        const p = fileURLToPath(ref);
+        return fs.existsSync(p) ? p : null;
+      }
+      if (path.isAbsolute(ref)) {
+        return fs.existsSync(ref) ? ref : null;
+      }
+
+      const moduleDir = getModuleDir();
+      const extraDirs = normalizeTemplateDirs().map((d) => {
+        try {
+          if (String(d).toLowerCase().startsWith('file://')) return fileURLToPath(d);
+        } catch {}
+        return path.isAbsolute(d) ? d : path.join(basePath, d);
+      });
+
+      const extraCandidates: string[] = [];
+      for (const dir of extraDirs) {
+        extraCandidates.push(path.join(dir, ref));
+      }
+
+      const candidates = [
+        path.join(basePath, ref),
+        ...extraCandidates,
+        path.join(moduleDir, 'templates', ref),
+        path.join(moduleDir, '..', 'templates', ref),
+        path.join(moduleDir, '..', 'src', 'templates', ref),
+      ];
+      for (const p of candidates) {
+        if (fs.existsSync(p)) return p;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  };
+
+  for (const match of matches) {
+    const code = String(match[1] ?? '');
+    const typeRef = extractQuoted(code, 'type');
+    const templateRaw = extractQuoted(code, 'template');
+    const templateRef = normalizeMd2xTemplateRef(typeRef, templateRaw);
+    if (!templateRef) continue;
+
+    const filePath = resolveExistingFilePath(templateRef);
+    if (!filePath) continue;
+
+    try {
+      const content = fs.readFileSync(filePath, 'utf-8');
+      const href = pathToFileURL(filePath).href;
+      out[href] = content;
+      out[templateRef] = content;
+      if (templateRaw) out[templateRaw] = content;
+    } catch {
+      // ignore
+    }
+  }
+
+  return out;
+}
+
 async function processDiagrams(
   html: string,
   browserRenderer: BrowserRenderer | null,
   basePath: string,
   themeConfig: RendererThemeConfig,
-  mode: 'img' | 'live' | 'none'
+  mode: 'img' | 'live' | 'none',
+  templatesDir?: string | string[],
+  cdnOverrides?: Md2HtmlOptions['cdn']
 ): Promise<string> {
   if (mode !== 'img') return html;
   if (!browserRenderer) return html;
+
+  // md2x templates are local files. Pre-load them on the Node side to avoid file:// fetch issues in the browser page.
+  const md2xTemplateFiles = collectMd2xTemplateFiles(html, basePath, templatesDir);
 
   // Build supported languages from plugin system
   // Only include plugins that handle 'code' nodes (not 'html' or 'image' only)
@@ -204,7 +435,8 @@ async function processDiagrams(
 
   for (const match of matches) {
     const [fullMatch, lang, code] = match;
-    const decodedCode = decodeHtmlEntities(code);
+    // rehype-highlight wraps tokens in <span>. Strip tags before decoding entities to preserve real "<" in code.
+    const decodedCode = decodeHtmlEntities(String(code || '').replace(/<[^>]*>/g, ''));
 
     // Normalize language aliases to renderer types
     let renderType = lang.toLowerCase();
@@ -212,7 +444,19 @@ async function processDiagrams(
     if (renderType === 'vegalite') renderType = 'vega-lite';
 
     try {
-      const result = await browserRenderer.render(renderType, decodedCode, basePath, themeConfig);
+      const renderInput =
+        renderType === 'md2x'
+          ? ({
+              code: decodedCode,
+              templateFiles: md2xTemplateFiles,
+              cdn: {
+                vue: cdnOverrides?.vue,
+                vueSfcLoader: cdnOverrides?.vueSfcLoader,
+              },
+            } as any)
+          : decodedCode;
+
+      const result = await browserRenderer.render(renderType, renderInput, basePath, themeConfig);
       if (result && result.base64) {
         // Tag the wrapper/img with kind so callers can target specific diagram types via CSS selectors,
         // e.g. `.md2x-diagram[data-md2x-diagram-kind="mermaid"]`.
@@ -236,7 +480,9 @@ async function markdownToHtmlFragment(
   browserRenderer: BrowserRenderer | null,
   basePath: string,
   themeConfig: RendererThemeConfig,
-  diagramMode: 'img' | 'live' | 'none'
+  diagramMode: 'img' | 'live' | 'none',
+  templatesDir?: string | string[],
+  cdnOverrides?: Md2HtmlOptions['cdn']
 ): Promise<string> {
   // Import markdown processor dynamically
   const { unified } = await import('unified');
@@ -319,7 +565,7 @@ async function markdownToHtmlFragment(
   let html = String(file);
 
   // Process diagrams (mermaid, graphviz, vega-lite, etc.)
-  html = await processDiagrams(html, browserRenderer, basePath, themeConfig, diagramMode);
+  html = await processDiagrams(html, browserRenderer, basePath, themeConfig, diagramMode, templatesDir, cdnOverrides);
 
   return html;
 }
@@ -327,8 +573,12 @@ async function markdownToHtmlFragment(
 function buildLiveDiagramBootstrap(
   themeConfig: RendererThemeConfig | null,
   baseHref: string,
-  cdnOverrides: Md2HtmlOptions['cdn'] | undefined
+  cdnOverrides: Md2HtmlOptions['cdn'] | undefined,
+  md2xTemplateFiles: Record<string, string> | undefined
 ): string {
+  // Prevent `</script>` inside embedded JSON (e.g., Vue SFC source) from terminating the bootstrap script tag.
+  const jsonForInlineScript = (value: unknown): string => JSON.stringify(value).replace(/</g, '\\u003c');
+
   const cdnBaseDefaults = {
     mermaid: 'https://cdn.jsdelivr.net/npm/mermaid@11.12.2/dist/mermaid.min.js',
     // Preferred: modern Graphviz WASM build (provides window.Viz.instance()).
@@ -337,6 +587,9 @@ function buildLiveDiagramBootstrap(
     viz: 'https://cdn.jsdelivr.net/npm/viz.js@2.1.2/viz.js',
     vizRender: 'https://cdn.jsdelivr.net/npm/viz.js@2.1.2/full.render.js',
     infographic: 'https://cdn.jsdelivr.net/npm/@antv/infographic@0.2.7/dist/infographic.min.js',
+    // For md2x template blocks (Vue SFC).
+    vue: 'https://unpkg.com/vue@3/dist/vue.global.js',
+    vueSfcLoader: 'https://cdn.jsdelivr.net/npm/vue3-sfc-loader/dist/vue3-sfc-loader.js',
   } as const;
 
   const cdnVegaDefaultsByMajor = {
@@ -358,11 +611,12 @@ function buildLiveDiagramBootstrap(
   <!-- md2x live diagram renderer (CDN) -->
   <script>
   (function () {
-    const themeConfig = ${JSON.stringify(themeConfig ?? null)};
-    const baseHref = ${JSON.stringify(baseHref)};
-    const cdnOverrides = ${JSON.stringify(cdnOverrides ?? {})};
-    const cdnBaseDefaults = ${JSON.stringify(cdnBaseDefaults)};
-    const cdnVegaDefaultsByMajor = ${JSON.stringify(cdnVegaDefaultsByMajor)};
+    const themeConfig = ${jsonForInlineScript(themeConfig ?? null)};
+    const baseHref = ${jsonForInlineScript(baseHref)};
+    const cdnOverrides = ${jsonForInlineScript(cdnOverrides ?? {})};
+    const cdnBaseDefaults = ${jsonForInlineScript(cdnBaseDefaults)};
+    const cdnVegaDefaultsByMajor = ${jsonForInlineScript(cdnVegaDefaultsByMajor)};
+    const md2xTemplateFiles = ${jsonForInlineScript(md2xTemplateFiles ?? {})};
 
     try { window.__md2xLiveDone = false; } catch {}
 
@@ -388,6 +642,43 @@ function buildLiveDiagramBootstrap(
       if (l === 'graphviz' || l === 'gv') return 'dot';
       if (l === 'vegalite') return 'vega-lite';
       return l;
+    }
+
+    function resolveHref(url, base) {
+      const u = String(url || '').trim();
+      if (!u) return '';
+      try {
+        return new URL(u, base || undefined).href;
+      } catch {
+        return u;
+      }
+    }
+
+    function normalizeMd2xTemplateRef(type, tpl) {
+      const t = String(type || '').trim().toLowerCase();
+      const v = String(tpl || '').trim();
+      if (!t || !v) return v;
+      // If user already provided a path/URL, keep it.
+      if (v.indexOf('/') !== -1 || v.indexOf('\\\\') !== -1 || v.indexOf('://') !== -1 || v.indexOf('file://') === 0) return v;
+      return t + '/' + v;
+    }
+
+    function detectMd2xNeedsVueFromDocument() {
+      const blocks = Array.from(document.querySelectorAll('pre > code'));
+      for (const codeEl of blocks) {
+        const langRaw = getLangFromCodeClass(codeEl);
+        const lang = normalizeLang(langRaw);
+        if (lang !== 'md2x') continue;
+        const text = (codeEl && codeEl.textContent) ? codeEl.textContent : '';
+        if (!text.trim()) continue;
+        // Fast path without parsing: the common config format includes type: 'vue'
+        if (/\\btype\\s*:\\s*['\\\"]vue['\\\"]/i.test(text)) return true;
+        try {
+          const cfg = parseMd2xConfig(text);
+          if (cfg && cfg.type === 'vue') return true;
+        } catch {}
+      }
+      return false;
     }
 
     function guessVegaLiteSchemaMajorFromSpec(spec) {
@@ -438,22 +729,77 @@ function buildLiveDiagramBootstrap(
       return detected || 6;
     }
 
+    function detectLiveKindsFromDocument() {
+      const blocks = Array.from(document.querySelectorAll('pre > code'));
+      const out = {
+        mermaid: false,
+        dot: false,
+        vegaLite: false,
+        infographic: false,
+        md2xVue: false,
+        md2xHtml: false,
+      };
+
+      for (const codeEl of blocks) {
+        const langRaw = getLangFromCodeClass(codeEl);
+        if (!langRaw) continue;
+        const lang = normalizeLang(langRaw);
+
+        if (lang === 'mermaid') out.mermaid = true;
+        else if (lang === 'dot') out.dot = true;
+        else if (lang === 'vega-lite') out.vegaLite = true;
+        else if (lang === 'infographic') out.infographic = true;
+        else if (lang === 'md2x') {
+          const text = (codeEl && codeEl.textContent) ? codeEl.textContent : '';
+          const cfg = parseMd2xConfig(text);
+          if (cfg && cfg.type === 'vue') out.md2xVue = true;
+          if (cfg && cfg.type === 'html') out.md2xHtml = true;
+        }
+      }
+
+      return out;
+    }
+
     async function ensureCdnLibsLoaded() {
-      const major = detectVegaLiteMajorFromDocument();
+      const kinds = detectLiveKindsFromDocument();
+
+      // Only include Vega URLs if we actually need Vega-Lite (reduces failure surface when offline).
+      const major = kinds.vegaLite ? detectVegaLiteMajorFromDocument() : 6;
       const vegaDefaults = cdnVegaDefaultsByMajor[String(major)] || cdnVegaDefaultsByMajor['6'];
       const cdn = Object.assign({}, cdnBaseDefaults, vegaDefaults, cdnOverrides || {});
 
-      await loadScript(cdn.mermaid);
-      if (cdn.vizGlobal) {
-        await loadScript(cdn.vizGlobal);
-      } else {
-        await loadScript(cdn.viz);
-        await loadScript(cdn.vizRender);
+      // Load only what we need; never throw here (so other kinds can still render).
+      if (kinds.mermaid) {
+        try { await loadScript(cdn.mermaid); } catch {}
       }
-      await loadScript(cdn.vega);
-      await loadScript(cdn.vegaLite);
-      await loadScript(cdn.vegaEmbed);
-      await loadScript(cdn.infographic);
+      if (kinds.dot) {
+        try {
+          if (cdn.vizGlobal) {
+            await loadScript(cdn.vizGlobal);
+          } else {
+            await loadScript(cdn.viz);
+            await loadScript(cdn.vizRender);
+          }
+        } catch {}
+      }
+      if (kinds.vegaLite) {
+        try {
+          await loadScript(cdn.vega);
+          await loadScript(cdn.vegaLite);
+          await loadScript(cdn.vegaEmbed);
+        } catch {}
+      }
+      if (kinds.infographic) {
+        try { await loadScript(cdn.infographic); } catch {}
+      }
+
+      // md2x templates:
+      if (kinds.md2xVue) {
+        try {
+          await loadScript(cdn.vue);
+          await loadScript(cdn.vueSfcLoader);
+        } catch {}
+      }
     }
 
     function replacePreWithContainer(preEl, kind) {
@@ -593,6 +939,199 @@ function buildLiveDiagramBootstrap(
       });
     }
 
+    function parseMd2xConfig(text) {
+      const raw = String(text || '').trim();
+      if (!raw) return null;
+
+      // The md2x block format is treated as a JS object literal (often without outer braces).
+      // Example:
+      //   type: 'vue',
+      //   template: 'vue/my-component.vue',
+      //   data: [...]
+      let expr = raw.replace(/^export\\s+default\\s+/i, '').trim();
+      if (!expr) return null;
+      if (!/^\\s*\\{[\\s\\S]*\\}\\s*$/.test(expr)) {
+        expr = '{' + expr + '}';
+      }
+
+      let cfg;
+      try {
+        // eslint-disable-next-line no-new-func
+        cfg = Function('\"use strict\"; return (' + expr + ');')();
+      } catch {
+        return null;
+      }
+
+      if (!cfg || typeof cfg !== 'object') return null;
+      const type = (cfg.type != null) ? String(cfg.type).toLowerCase() : '';
+      const template = (cfg.template != null) ? String(cfg.template) : '';
+      const data = cfg.data;
+      if (type !== 'vue' && type !== 'html') return null;
+      if (!template) return null;
+      return { type, template, data };
+    }
+
+    async function renderMd2xHtml(cfg, mount) {
+      try {
+        const templateRef = normalizeMd2xTemplateRef(cfg.type, cfg.template);
+        const tplHref = resolveHref(templateRef, baseHref || undefined);
+        const tpl = md2xTemplateFiles[tplHref] || md2xTemplateFiles[templateRef] || md2xTemplateFiles[cfg.template];
+        if (typeof tpl !== 'string' || !tpl) {
+          mount.textContent = 'Missing md2x html template: ' + templateRef;
+          return;
+        }
+
+        // Same data-injection approach as md2x Vue templates: replace the templateData placeholder.
+        const json = (() => {
+          try {
+            const j = JSON.stringify(cfg.data ?? null);
+            // Avoid accidentally terminating an inline <script> tag if user data contains "</...".
+            // IMPORTANT: avoid including the literal closing script tag sequence in this bootstrap source code.
+            return j.split('</').join('<\\/');
+          } catch {
+            return 'null';
+          }
+        })();
+        mount.innerHTML = tpl.split('templateData').join('(' + json + ')');
+
+        // Browsers treat <script> tags inserted via innerHTML as inert (they won't execute).
+        // Re-create them in-place to allow "script + markup in one HTML file" templates.
+        const scripts = Array.from(mount.querySelectorAll('script'));
+        for (const old of scripts) {
+          const parent = old.parentNode;
+          if (!parent) continue;
+
+          const s = document.createElement('script');
+          for (const attr of Array.from(old.attributes || [])) {
+            const name = String(attr && attr.name ? attr.name : '');
+            if (!name) continue;
+            // Keep execution order predictable (parser-blocking semantics).
+            if (name === 'async' || name === 'defer') continue;
+            try {
+              s.setAttribute(name, attr.value);
+            } catch {}
+          }
+
+          const src = old.getAttribute('src');
+          let wait = null;
+          if (src) {
+            // Force sequential loading/execution for deterministic template behavior.
+            try { s.async = false; } catch {}
+            wait = new Promise((resolve) => {
+              s.onload = () => resolve(null);
+              s.onerror = () => resolve(null);
+            });
+            // Resolve relative src against baseHref (file://.../).
+            const href = resolveHref(src, baseHref || undefined);
+            s.setAttribute('src', href);
+          } else {
+            s.textContent = old.textContent || '';
+          }
+
+          parent.replaceChild(s, old);
+          if (wait) {
+            try { await wait; } catch {}
+          }
+        }
+      } catch (e) {
+        mount.textContent = 'Failed to render md2x html template.';
+      }
+    }
+
+    async function renderMd2xVue(cfg, mount) {
+      const Vue = window.Vue;
+      const loader = window['vue3-sfc-loader'];
+      if (!Vue || !loader || typeof loader.loadModule !== 'function') {
+        mount.textContent = 'Vue runtime not available (missing vue/vue3-sfc-loader).';
+        return;
+      }
+
+      const { loadModule } = loader;
+      const fileCache = Object.create(null);
+
+      const templateRef = normalizeMd2xTemplateRef(cfg.type, cfg.template);
+      const rootHref = resolveHref(templateRef, baseHref || undefined);
+      const rootSource = md2xTemplateFiles[rootHref] || md2xTemplateFiles[templateRef] || md2xTemplateFiles[cfg.template];
+      if (typeof rootSource !== 'string' || !rootSource) {
+        mount.textContent = 'Missing md2x vue template: ' + templateRef;
+        return;
+      }
+
+      // Inject md2x data into the template by replacing the templateData placeholder.
+      // This avoids fetch() and also avoids having to require every user template to define props.
+      const json = (() => {
+        try {
+          const j = JSON.stringify(cfg.data ?? null);
+          // Prevent any closing tag sequence (e.g. "</div>") inside injected string values from terminating the HTML
+          // bootstrap script tag while the page is parsing.
+          // IMPORTANT: avoid including the literal closing script tag sequence in this bootstrap source code.
+          return j.split('</').join('<\\/');
+        } catch {
+          return 'null';
+        }
+      })();
+      // NOTE: avoid \\b in this template-literal-generated script (it would become a backspace character).
+      const rootPatchedSource = rootSource.split('templateData').join('(' + json + ')');
+
+      const options = {
+        moduleCache: { vue: Vue },
+        async getFile(url) {
+          const u = String(url || '').trim();
+          if (!u) throw new Error('Empty md2x template url');
+          if (fileCache[u]) return fileCache[u];
+
+          const href = resolveHref(u, baseHref || undefined);
+          if (href === rootHref || u === rootHref) {
+            fileCache[u] = rootPatchedSource;
+            return rootPatchedSource;
+          }
+          const text = md2xTemplateFiles[href] || md2xTemplateFiles[u];
+          if (typeof text !== 'string') {
+            throw new Error('Missing md2x template content for: ' + u);
+          }
+          fileCache[u] = text;
+          return text;
+        },
+        resolve({ refPath, relPath }) {
+          // Ensure nested <script src>, <style src> etc become absolute keys for md2xTemplateFiles lookup.
+          try {
+            const refHref = resolveHref(refPath, baseHref || undefined);
+            return new URL(relPath, refHref).href;
+          } catch {
+            return relPath;
+          }
+        },
+        addStyle(textContent) {
+          const style = document.createElement('style');
+          style.textContent = textContent;
+          const ref = document.head.getElementsByTagName('style')[0] || null;
+          document.head.insertBefore(style, ref);
+        },
+      };
+
+      let Comp;
+      try {
+        Comp = await loadModule(rootHref, options);
+      } catch (e) {
+        mount.textContent = 'Failed to load Vue SFC: ' + cfg.template;
+        return;
+      }
+
+      // Render the loaded SFC. Data injection is handled by templateData placeholder replacement
+      // (so we avoid passing extraneous attrs that can trigger Vue warnings for fragment-root SFCs).
+      const app = Vue.createApp({
+        render() {
+          return Vue.h(Comp);
+        },
+      });
+      app.mount(mount);
+      try {
+        if (typeof Vue.nextTick === 'function') {
+          await Vue.nextTick();
+        }
+      } catch {}
+    }
+
     async function main() {
       try {
         if (baseHref) {
@@ -605,12 +1144,7 @@ function buildLiveDiagramBootstrap(
         }
       } catch {}
 
-      try {
-        await ensureCdnLibsLoaded();
-      } catch {
-        try { window.__md2xLiveDone = true; } catch {}
-        return;
-      }
+      await ensureCdnLibsLoaded();
 
       const blocks = Array.from(document.querySelectorAll('pre > code'));
       let idx = 0;
@@ -636,6 +1170,19 @@ function buildLiveDiagramBootstrap(
           } else if (lang === 'infographic') {
             const mount = replacePreWithContainer(pre, 'infographic');
             await renderInfographic(code, mount);
+          } else if (lang === 'md2x') {
+            const cfg = parseMd2xConfig(code);
+            const kind = cfg && cfg.type ? ('md2x-' + cfg.type) : 'md2x';
+            const mount = replacePreWithContainer(pre, kind);
+            if (!cfg) {
+              mount.textContent = 'Invalid md2x block.';
+              continue;
+            }
+            if (cfg.type === 'vue') {
+              await renderMd2xVue(cfg, mount);
+            } else if (cfg.type === 'html') {
+              await renderMd2xHtml(cfg, mount);
+            }
           }
         } catch {}
       }
@@ -689,7 +1236,8 @@ export class NodeDocxExporter {
       }
 
       const themeConfig = await loadRendererThemeConfig(themeId);
-      const pluginRenderer = createPluginRenderer(browserRenderer, basePath, themeConfig);
+      const md2xTemplateFiles = collectMd2xTemplateFilesFromMarkdown(markdown, basePath, options.templatesDir);
+      const pluginRenderer = createPluginRenderer(browserRenderer, basePath, themeConfig, md2xTemplateFiles);
 
       // Dynamic import to reduce bundle size - docx is only loaded when needed
       const { default: DocxExporter } = await import('../../../src/exporters/docx-exporter');
@@ -1166,8 +1714,13 @@ export class NodePdfExporter {
 
       const themeConfig = await loadRendererThemeConfig(themeId);
 
-      // Process markdown to HTML (with diagram rendering)
-      const html = await markdownToHtmlFragment(markdown, browserRenderer, basePath, themeConfig, 'img');
+      const diagramMode: 'img' | 'live' | 'none' = options.diagramMode ?? 'img';
+      let html = await markdownToHtmlFragment(markdown, browserRenderer, basePath, themeConfig, diagramMode, options.templatesDir, options.cdn);
+      if (diagramMode === 'live') {
+        const baseHref = pathToFileURL(basePath + path.sep).href;
+        const md2xTemplateFiles = collectMd2xTemplateFiles(html, basePath, options.templatesDir);
+        html = html + '\n' + buildLiveDiagramBootstrap(themeConfig ?? null, baseHref, options.cdn, md2xTemplateFiles);
+      }
 
       // Load CSS
       let katexCss = '';
@@ -1234,10 +1787,11 @@ export class NodeImageExporter {
       const themeConfig = await loadRendererThemeConfig(themeId);
 
       const diagramMode: 'img' | 'live' | 'none' = options.diagramMode ?? 'live';
-      let html = await markdownToHtmlFragment(markdown, browserRenderer, basePath, themeConfig, diagramMode);
+      let html = await markdownToHtmlFragment(markdown, browserRenderer, basePath, themeConfig, diagramMode, options.templatesDir, options.cdn);
       if (diagramMode === 'live') {
         const baseHref = pathToFileURL(basePath + path.sep).href;
-        html = html + '\n' + buildLiveDiagramBootstrap(themeConfig ?? null, baseHref, options.cdn);
+        const md2xTemplateFiles = collectMd2xTemplateFiles(html, basePath, options.templatesDir);
+        html = html + '\n' + buildLiveDiagramBootstrap(themeConfig ?? null, baseHref, options.cdn, md2xTemplateFiles);
       }
 
       let katexCss = '';
@@ -1297,10 +1851,11 @@ export class NodeImageExporter {
       const themeConfig = await loadRendererThemeConfig(themeId);
 
       const diagramMode: 'img' | 'live' | 'none' = options.diagramMode ?? 'live';
-      let html = await markdownToHtmlFragment(markdown, browserRenderer, basePath, themeConfig, diagramMode);
+      let html = await markdownToHtmlFragment(markdown, browserRenderer, basePath, themeConfig, diagramMode, options.templatesDir, options.cdn);
       if (diagramMode === 'live') {
         const baseHref = pathToFileURL(basePath + path.sep).href;
-        html = html + '\n' + buildLiveDiagramBootstrap(themeConfig ?? null, baseHref, options.cdn);
+        const md2xTemplateFiles = collectMd2xTemplateFiles(html, basePath, options.templatesDir);
+        html = html + '\n' + buildLiveDiagramBootstrap(themeConfig ?? null, baseHref, options.cdn, md2xTemplateFiles);
       }
 
       let katexCss = '';
@@ -1369,7 +1924,7 @@ export class NodeHtmlExporter {
         }
       }
 
-      const fragment = await markdownToHtmlFragment(markdown, browserRenderer, basePath, themeConfig, diagramMode);
+      const fragment = await markdownToHtmlFragment(markdown, browserRenderer, basePath, themeConfig, diagramMode, options.templatesDir, options.cdn);
 
       const standalone = options.standalone !== false;
       if (!standalone) return fragment;
@@ -1399,7 +1954,12 @@ export class NodeHtmlExporter {
 
       // Reuse the same live bootstrap as image export so HTML and image captures behave consistently.
       const liveBootstrap = diagramMode === 'live'
-        ? buildLiveDiagramBootstrap(themeConfig ?? null, baseHref, options.cdn)
+        ? buildLiveDiagramBootstrap(
+          themeConfig ?? null,
+          baseHref,
+          options.cdn,
+          collectMd2xTemplateFiles(fragment, basePath, options.templatesDir)
+        )
         : '';
 
       return `<!DOCTYPE html>

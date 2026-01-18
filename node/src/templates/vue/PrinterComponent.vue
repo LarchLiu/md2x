@@ -1,0 +1,875 @@
+<template>
+  <div>
+    <div id="modal" :class="modalClass">
+      <div>
+        <h3>Quick Tip</h3>
+        <p>
+          Press the black button to print. <br />
+          Red means ready, green means printing and temporarily disabled.
+        </p>
+        <button id="okay-button" @click="handleOkayClick">Okay</button>
+      </div>
+    </div>
+
+    <div class="printer">
+      <div>
+        <p>Zee Printer</p>
+        <button id="print-button" @click="handlePrintClick">
+          <div id="print-icon" :class="printIconClass">
+            <div><div></div></div>
+            <div></div>
+          </div>
+          <div id="print-indicator" :class="printIndicatorClass"></div>
+        </button>
+      </div>
+      <div></div>
+      <div>
+        <div id="receipts-wrapper" ref="receiptsWrapperRef">
+          <div id="receipt-wrapper" ref="receiptWrapperRef">
+            <div id="receipt-container" :class="{ print: hasPrinted }">
+              <div class="receipt">
+                <div class="receipt-header">
+                  <div>
+                    <p>Payment Successful</p>
+                    <p>
+                      <span>11 May 2024</span>
+                      <span>08:30 PM</span>
+                    </p>
+                  </div>
+                  <div></div>
+                </div>
+                <div class="receipt-body">
+                  <div>
+                    <div>
+                      <p>1x Jollof Rice & Turkey</p>
+                      <p><span>₦</span>3,500.00</p>
+                    </div>
+                    <div>
+                      <p>1x Zobo Drink</p>
+                      <p><span>₦</span>800.00</p>
+                    </div>
+                    <div>
+                      <p>1x Small Chops Pack</p>
+                      <p><span>₦</span>2,500.00</p>
+                    </div>
+                  </div>
+                  <div>
+                    <div>
+                      <p>Subtotal</p>
+                      <p><span>₦</span>6,800.00</p>
+                    </div>
+                    <div>
+                      <p>VAT (9%)</p>
+                      <p><span>₦</span>612.00</p>
+                    </div>
+                    <div>
+                      <p>Service Fee</p>
+                      <p><span>₦</span>2,500.00</p>
+                    </div>
+                  </div>
+                </div>
+                <div class="receipt-footer">
+                  <div>
+                    <p>TOTAL</p>
+                    <p><span>₦</span>7,450.00</p>
+                  </div>
+                  <div>
+                    <div class="emoji">
+                      <div>
+                        <span>
+                          <span><span></span></span>
+                          <span><span></span></span>
+                        </span>
+                        <span><span></span></span>
+                      </div>
+                    </div>
+                    <span>THANK YOU</span>
+                  </div>
+                </div>
+              </div>
+              <div class="cutout">
+                <div><div></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { ref, computed, onMounted } from 'vue'
+
+const modalClass = ref('fade-in-animation')
+const isPrinting = ref(false)
+const hasPrinted = ref(false)
+const indicatorState = ref('inactive')
+
+const receiptsWrapperRef = ref(null)
+const receiptWrapperRef = ref(null)
+
+const printerSound = new Audio('./printer.mp3')
+printerSound.currentTime = 0
+
+const printIndicatorClass = computed(() => `${indicatorState.value}-background`)
+const printIconClass = computed(() => `${indicatorState.value}-icon`)
+
+const setPrintIndicator = (state) => {
+  indicatorState.value = state
+}
+
+const handleOkayClick = () => {
+  modalClass.value = 'fade-out-animation'
+}
+
+const handlePrintClick = () => {
+  if (isPrinting.value) return
+
+  isPrinting.value = true
+
+  let newReceipt = null
+
+  printerSound.play()
+
+  setPrintIndicator('active')
+
+  if (hasPrinted.value) {
+    newReceipt = receiptWrapperRef.value.cloneNode(true)
+    receiptsWrapperRef.value.appendChild(newReceipt)
+  } else {
+    hasPrinted.value = true
+  }
+
+  setTimeout(() => {
+    isPrinting.value = false
+    printerSound.pause()
+    printerSound.currentTime = 0
+
+    if (newReceipt) {
+      newReceipt.classList.add('fade-out')
+
+      setTimeout(() => {
+        newReceipt.remove()
+      }, 5000)
+    }
+
+    setPrintIndicator('inactive')
+  }, 6500)
+}
+
+onMounted(() => {
+  setPrintIndicator('inactive')
+})
+</script>
+
+<style>
+@import url("https://fonts.googleapis.com/css2?family=Geist+Mono:wght@100..900&family=Pacifico&display=swap");
+
+:root {
+  --color-white: #fff;
+  --color-black: #000;
+  --color-red: #ff4444;
+  --color-brown: #f0ad22;
+  --color-green: #4dd278;
+  --color-lemon: #1bd218;
+  --color-gold-1: #fbe300;
+  --color-gold-2: #eccd00;
+  --color-gold-3: #b29300;
+  --color-gray-1: #f6f6f6;
+  --color-gray-2: #efefef;
+  --color-gray-3: #eaeaea;
+  --color-gray-4: #e8e8e8;
+  --color-gray-5: #e9e9e9;
+  --color-gray-6: #e6e2e3;
+  --color-gray-7: #d7d7d7;
+  --color-gray-8: #cccccc;
+  --color-gray-9: #c5c5c5;
+  --color-gray-10: #bcbcbc;
+  --color-gray-11: #a1a1a1;
+  --color-gray-12: #8d8e92;
+  --color-gray-13: #e1e1e14d;
+  --color-gray-14: #787878cc;
+  --color-gray-15: #666669;
+  --color-gray-16: #3838384d;
+  --color-gray-17: #0000001a;
+  --color-gray-18: #000000cc;
+  --color-gray-20: #1a1a1a;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+html {
+  font-size: max(calc(16 * min(100vw / 600, 100vh / 842)), 0rem);
+}
+
+body {
+  height: 100%;
+  display: flex;
+  overflow: hidden;
+  position: relative;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--color-gray-5);
+}
+
+body::-webkit-scrollbar {
+  display: none;
+}
+
+p {
+  margin-bottom: 0 !important;
+}
+
+#modal {
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 100;
+  padding: 20px;
+  display: flex;
+  position: fixed;
+  visibility: hidden;
+  align-items: center;
+  flex-direction: column;
+  justify-content: center;
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+  background-color: var(--color-gray-16);
+}
+
+#modal > div {
+  gap: 25px;
+  display: flex;
+  position: relative;
+  align-items: center;
+  border-radius: 10px;
+  flex-direction: column;
+  justify-content: center;
+  font-family: "Geist Mono";
+}
+
+#modal > div > h3 {
+  font-size: 24px;
+  line-height: 20px;
+  color: var(--color-black);
+}
+
+#modal > div > p {
+  font-size: 16px;
+  line-height: 30px;
+  text-align: center;
+  color: var(--color-black);
+}
+
+#okay-button {
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 600;
+  margin-top: 5px;
+  padding: 15px 30px;
+  border-radius: 5px;
+  transition: 0.3s ease;
+  color: var(--color-white);
+  background-color: var(--color-black);
+}
+
+#okay-button:hover {
+  background-color: #000000cc;
+}
+
+.fade-in-animation {
+  animation: fade-in 1s ease 1s forwards;
+}
+
+.fade-out-animation {
+  animation: fade-out 1s ease forwards;
+}
+
+.printer {
+  display: flex;
+  height: 44.25rem;
+  width: 32.1875rem;
+  position: relative;
+  align-items: center;
+  flex-direction: column;
+}
+
+.printer::after {
+  content: "";
+  z-index: -2;
+  top: -0.625rem;
+  left: 0.625rem;
+  height: 11.25rem;
+  width: 33.4375rem;
+  position: absolute;
+  filter: blur(1.5rem);
+  border-radius: 3.75rem;
+  background: var(--color-gray-7);
+  background: linear-gradient(
+    180deg,
+    var(--color-gray-7) 0%,
+    var(--color-gray-14) 70%
+  );
+}
+
+.printer > div:first-child {
+  z-index: 20;
+  width: 100%;
+  display: flex;
+  align-items: end;
+  height: 7.4375rem;
+  position: relative;
+  border-radius: 1.0625rem;
+  justify-content: space-between;
+  background: var(--color-gray-7);
+  padding: 0.625rem 0.7rem 0.7rem 1rem;
+  background-color: var(--color-gray-7);
+  box-shadow: 0rem 0.125rem 0.03125rem var(--color-gray-11);
+  background: linear-gradient(
+    180deg,
+    var(--color-gray-7) 0%,
+    var(--color-gray-1) 25%,
+    var(--color-gray-7) 45%
+  );
+}
+
+.printer > div:first-child > p {
+  font-size: 1.25rem;
+  font-family: "Pacifico";
+  margin-bottom: -0.09375rem;
+  color: var(--color-gray-3);
+  text-shadow: -0.07rem -0.07rem 0.1875rem var(--color-gray-13),
+    0.07rem 0.07rem 0.1875rem var(--color-gray-16);
+}
+
+#print-button {
+  outline: 0;
+  border: none;
+  display: flex;
+  gap: 0.125rem;
+  cursor: pointer;
+  height: 1.625rem;
+  overflow: hidden;
+  font-weight: 500;
+  position: relative;
+  align-items: center;
+  justify-content: center;
+  border-radius: 1.5625rem;
+  padding: 0 0.5625rem 0 0.5625rem;
+  border: 0.07rem solid var(--color-gray-4);
+  background: linear-gradient(145deg, var(--color-gray-20), var(--color-black));
+  box-shadow: 0.375rem 0.375rem 0.75rem var(--color-gray-9),
+    -0.375rem -0.375rem 0.75rem var(--color-white);
+}
+
+#print-icon {
+  display: flex;
+  height: 0.875rem;
+  width: 0.9375rem;
+  position: relative;
+  align-items: center;
+  justify-content: center;
+}
+
+#print-icon::before {
+  left: 50%;
+  z-index: 3;
+  content: "";
+  top: -0.15625rem;
+  width: 0.15625rem;
+  height: 1.3125rem;
+  position: absolute;
+  border-radius: 0.03125rem;
+  animation: grow 0.5s ease forwards;
+  transform: rotate(45deg) translateX(-50%);
+}
+
+#print-icon > div:first-child {
+  height: 100%;
+  width: 0.625rem;
+  position: absolute;
+  border-radius: 0.03125rem;
+  transition: background-color 0.5s ease, border 0.5s ease;
+}
+
+#print-icon > div:first-child div {
+  bottom: 0;
+  z-index: 2;
+  width: 100%;
+  display: flex;
+  height: 0.25rem;
+  position: absolute;
+  justify-content: center;
+  background-color: var(--color-black);
+}
+
+#print-icon > div:first-child div::before {
+  width: 70%;
+  z-index: 2;
+  content: "";
+  height: 0.07rem;
+  position: absolute;
+  bottom: 0.09375rem;
+  border-radius: 0.3125rem;
+  transition: background-color 0.5s ease, border 0.5s ease;
+}
+
+#print-icon > div:last-child {
+  width: 100%;
+  position: absolute;
+  height: 0.40625rem;
+  border-radius: 0.07rem;
+  transition: background-color 0.5s ease, border 0.5s ease;
+}
+
+#print-icon > div:last-child::after {
+  content: "";
+  top: 0.09375rem;
+  width: 0.1875rem;
+  right: 0.15625rem;
+  position: absolute;
+  height: 0.09375rem;
+  border-radius: 0.07rem;
+  background-color: var(--color-black);
+}
+
+.active-icon#print-icon::before {
+  display: block;
+}
+
+.active-icon#print-icon > div:first-child {
+  border: 0.07rem var(--color-lemon) solid;
+}
+
+.active-icon#print-icon > div:first-child div::before,
+.active-icon#print-icon > div:last-child {
+  background-color: var(--color-lemon);
+}
+
+.active-icon#print-icon::before {
+  animation: grow 0.5s ease forwards;
+  background: linear-gradient(
+    90deg,
+    var(--color-black) 50%,
+    var(--color-lemon) 50%
+  );
+}
+
+.inactive-icon#print-icon::before {
+  animation: shrink 0.5s ease forwards;
+  background: linear-gradient(
+    90deg,
+    var(--color-black) 50%,
+    var(--color-red) 50%
+  );
+}
+
+.inactive-icon#print-icon > div:first-child {
+  border: 0.07rem var(--color-red) solid;
+}
+
+.inactive-icon#print-icon > div:first-child div::before,
+.inactive-icon#print-icon > div:last-child {
+  background-color: var(--color-red);
+}
+
+#print-indicator {
+  width: 0.5rem;
+  height: 0.5rem;
+  display: block;
+  border-radius: 50%;
+  margin-left: 0.3125rem;
+  animation: blink 1s infinite;
+  transition: background-color 0.5s ease, border 0.5s ease;
+}
+
+.active-background {
+  background: var(--color-lemon);
+}
+
+.inactive-background {
+  background: var(--color-red);
+}
+
+.printer > div:nth-child(2) {
+  z-index: -1;
+  display: flex;
+  height: 1.5rem;
+  width: 32.125rem;
+  position: relative;
+  margin-top: -0.8125rem;
+  justify-content: center;
+  background-color: var(--color-gray-10);
+  clip-path: polygon(0 0, 100% 0, 99.6% 100%, 0.4% 100%);
+}
+
+.printer > div:last-child {
+  display: flex;
+  height: 0.75rem;
+  width: 31.875rem;
+  position: relative;
+  margin-top: -0.07rem;
+  justify-content: center;
+  border-radius: 0 0 0.75rem 0.75rem;
+  background-color: var(--color-gray-10);
+}
+
+.printer > div:last-child > div {
+  width: 30.125rem;
+  height: 0.6875rem;
+  position: absolute;
+  bottom: 0.34375rem;
+  background: var(--color-black);
+  box-shadow: 0rem 0rem 0.3125rem 0.25rem var(--color-gray-8);
+  border-radius: 0.375rem 0.375rem 0.625rem 0.625rem / 0.375rem 0.375rem
+    0.9375rem 0.9375rem;
+}
+
+#receipt-wrapper {
+  width: 100%;
+  display: flex;
+  top: 0.25rem;
+  overflow: hidden;
+  position: absolute;
+  justify-content: center;
+  padding-bottom: 1.25rem;
+  transition: opacity 5s linear;
+}
+
+.fade-out {
+  opacity: 0;
+}
+
+#receipt-container {
+  width: 91%;
+  transform: translateY(-100%);
+}
+
+.print {
+  animation: print 6.5s linear forwards;
+}
+
+.receipt {
+  width: 100%;
+  font-size: 1rem;
+  font-weight: 450;
+  position: relative;
+  padding: 0.9375rem 0 0;
+  margin-bottom: 1.875rem;
+  font-family: "Geist Mono";
+  background-color: var(--color-white);
+  filter: drop-shadow(0 0.25rem 0.3125rem var(--color-gray-17));
+}
+
+.receipt-header {
+  display: flex;
+  align-items: center;
+  padding: 1.375rem 1.375rem;
+  justify-content: space-between;
+  border-bottom: 0.07rem solid var(--color-gray-2);
+}
+
+.receipt-header > div:first-child {
+  display: flex;
+  gap: 0.4375rem;
+  flex-direction: column;
+}
+
+.receipt-header > div:first-child > p:first-child {
+  font-weight: 530;
+  font-size: 1.1875rem;
+  letter-spacing: -0.009375rem;
+}
+
+.receipt-header > div:first-child > p:last-child {
+  gap: 1.125rem;
+  display: flex;
+  color: var(--color-gray-12);
+}
+
+.receipt-header > div:last-child {
+  width: 3.25rem;
+  height: 3.25rem;
+  border-radius: 50%;
+  background-color: var(--color-green);
+  clip-path: polygon(
+    0 0,
+    0 100%,
+    50% 100%,
+    38.38% 80.76%,
+    15.3% 55.76%,
+    26% 44.23%,
+    38.38% 56.5%,
+    71.07% 21.15%,
+    82.61% 32.69%,
+    38.38% 80.76%,
+    50% 100%,
+    3.4375rem 100%,
+    100% 0
+  );
+}
+
+.receipt-body > div {
+  gap: 1.125rem;
+  display: flex;
+  flex-direction: column;
+  padding: 1.375rem 1.375rem;
+  color: var(--color-gray-15);
+  justify-content: space-between;
+  border-bottom: 0.07rem solid var(--color-gray-2);
+}
+
+.receipt-footer {
+  gap: 3.75rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 1.375rem 1.375rem 0.9375rem;
+}
+
+.receipt-body > div > div,
+.receipt-footer > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.receipt-body > div > div > p:last-child > span,
+.receipt-footer > div > p:last-child > span {
+  font-weight: 400;
+}
+
+.receipt-footer > div:last-child {
+  margin: auto;
+  display: flex;
+  gap: 0.625rem;
+  align-items: center;
+  font-size: 1.125rem;
+}
+
+.receipt-footer > div > p:last-child {
+  font-weight: 600;
+  font-size: 1.1875rem;
+}
+
+.emoji {
+  width: 1.8125rem;
+  height: 2.03125rem;
+  position: relative;
+}
+
+.emoji::after {
+  bottom: 0;
+  left: 50%;
+  width: 80%;
+  content: "";
+  height: 0.125rem;
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(0.01875rem);
+  transform: translateX(-50%);
+  background-color: var(--color-gray-6);
+}
+
+.emoji > div {
+  width: 100%;
+  display: block;
+  overflow: hidden;
+  height: 1.8125rem;
+  position: relative;
+  border-radius: 50%;
+  clip-path: circle();
+  background-color: var(--color-gold-2);
+  border: 0.07rem var(--color-gold-3) solid;
+}
+
+.emoji > div::before {
+  content: "";
+  width: 100%;
+  height: 100%;
+  bottom: 0.125rem;
+  position: absolute;
+  border-radius: 50%;
+  background-color: var(--color-gold-1);
+}
+
+.emoji > div > span:first-child {
+  top: 40%;
+  left: 50%;
+  width: 100%;
+  display: flex;
+  height: 0.25rem;
+  position: absolute;
+  padding: 0 0.1875rem;
+  transform: translateX(-50%);
+  justify-content: space-between;
+}
+
+.emoji > div > span:first-child > span {
+  height: 0.25rem;
+  width: 0.21875rem;
+  position: relative;
+}
+
+.emoji > div > span:first-child > span::after {
+  left: 50%;
+  content: "";
+  height: 0.125rem;
+  width: 0.21875rem;
+  position: absolute;
+  bottom: -0.1875rem;
+  border-radius: 50%;
+  filter: blur(0.03125rem);
+  transform: translateX(-50%);
+  background-color: var(--color-brown);
+}
+
+.emoji > div > span:first-child > span > span {
+  width: 100%;
+  height: 100%;
+  display: block;
+  border-radius: 50%;
+  border: 0.07rem var(--color-gold-3) solid;
+  clip-path: polygon(0 50%, 100% 50%, 100% 100%, 0% 100%);
+}
+
+.emoji > div > span:last-child {
+  left: 50%;
+  width: 0.8125rem;
+  height: 0.8125rem;
+  bottom: 0.40625rem;
+  position: absolute;
+  transform: translateX(-50%);
+}
+
+.emoji > div > span:last-child::after {
+  left: 50%;
+  content: "";
+  width: 0.5rem;
+  top: -0.375rem;
+  height: 0.125rem;
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(0.07rem);
+  transform: translateX(-50%);
+  background-color: var(--color-white);
+}
+
+.emoji > div > span:last-child > span {
+  left: 50%;
+  width: 95%;
+  height: 100%;
+  border-radius: 50%;
+  position: absolute;
+  transform: translateX(-50%);
+  border: 0.07rem var(--color-gold-3) solid;
+  clip-path: polygon(0 85%, 100% 85%, 100% 100%, 0% 100%);
+}
+
+.cutout {
+  position: relative;
+}
+
+.cutout > div {
+  width: 100%;
+  position: relative;
+  margin-top: -0.07rem;
+  filter: drop-shadow(0 0.75rem 0.3125rem var(--color-gray-17));
+}
+
+.cutout > div > div {
+  width: 100%;
+  height: 2.5rem;
+  overflow-x: hidden;
+  transform: translateY(-1.875rem);
+  background-color: var(--color-white);
+  mask-image: radial-gradient(
+    circle at 1.03125rem 2.1875rem,
+    transparent 0.875rem,
+    var(--color-black) 0.875rem
+  );
+  mask-repeat: repeat-x;
+  mask-position: -0.78125rem 0;
+  mask-size: 2.0625rem 2.1875rem;
+  -webkit-mask-image: radial-gradient(
+    circle at 1.03125rem 2.1875rem,
+    transparent 0.875rem,
+    var(--color-black) 0.875rem
+  );
+  -webkit-mask-repeat: repeat-x;
+  -webkit-mask-position: -0.78125rem 0;
+  -webkit-mask-size: 2.0625rem 2.1875rem;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    visibility: hidden;
+  }
+  to {
+    opacity: 1;
+    visibility: visible;
+  }
+}
+
+@keyframes fade-out {
+  from {
+    opacity: 1;
+    visibility: visible;
+  }
+  to {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+
+@keyframes blink {
+  0%,
+  50% {
+    opacity: 1;
+  }
+  51%,
+  100% {
+    opacity: 0.4;
+  }
+}
+
+@keyframes print {
+  0% {
+    transform: translateY(-100%);
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+
+@keyframes shrink {
+  0% {
+    clip-path: polygon(0 100%, 100% 100%, 100% 0, 0 0);
+  }
+  100% {
+    clip-path: polygon(0 100%, 100% 100%, 100% 100%, 0 100%);
+  }
+}
+
+@keyframes grow {
+  0% {
+    clip-path: polygon(0 100%, 100% 100%, 100% 100%, 0 100%);
+  }
+  100% {
+    clip-path: polygon(0 100%, 100% 100%, 100% 0, 0 0);
+  }
+}
+</style>

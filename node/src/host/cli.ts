@@ -45,6 +45,8 @@ interface NodeOptions {
   version: boolean;
   listThemes: boolean;
   diagramMode: DiagramMode;
+  /** Extra directories to search for md2x templates referenced by ` ```md2x ` blocks (repeatable). */
+  templatesDir: string[];
   /**
    * null means "use format default":
    * - pdf/docx: true
@@ -138,8 +140,9 @@ Options:
   -t, --theme       Theme name (default: "default")
   -h, --help        Show this help message
   -v, --version     Show version number
-  --diagram-mode    HTML/Image: img | live | none (default: live for HTML/Image)
+  --diagram-mode    img | live | none (default: img for DOCX; live for HTML/Image)
   --hr-page-break   Convert horizontal rules to page breaks: true | false (default: true for PDF/DOCX; false for HTML/Image)
+  --templates-dir    Extra template dir for md2x blocks (repeatable; resolved against input dir when relative)
   --list-themes     List all available themes
 
 Examples:
@@ -196,6 +199,7 @@ function parseArgs(args: string[]): NodeOptions {
     version: false,
     listThemes: false,
     diagramMode: 'live',
+    templatesDir: [],
     hrPageBreak: null,
     _explicit: new Set(),
   };
@@ -276,6 +280,20 @@ function parseArgs(args: string[]): NodeOptions {
         options._explicit.add('hrPageBreak');
       } else {
         console.error('Error: --hr-page-break requires a value (true | false)');
+        process.exit(1);
+      }
+    } else if (arg === '--templates-dir') {
+      i++;
+      if (i < args.length) {
+        const dir = String(args[i]).trim();
+        if (!dir) {
+          console.error('Error: --templates-dir requires a non-empty path');
+          process.exit(1);
+        }
+        options.templatesDir.push(dir);
+        options._explicit.add('templatesDir');
+      } else {
+        console.error('Error: --templates-dir requires a path');
         process.exit(1);
       }
     } else if (arg.startsWith('-')) {
@@ -360,13 +378,13 @@ async function main(): Promise<void> {
   // - HTML: diagramMode defaults to "live"
   // - Image: diagramMode defaults to "live"
   // Note: "live" needs network access in the browser context (CDN scripts). Use --diagram-mode img for offline.
-  const defaultDiagramMode: DiagramMode | null =
-    format === 'html' ? 'live'
-      : isImage ? 'live'
-        : null;
+  const defaultDiagramMode: DiagramMode = format === 'docx' ? 'img' : 'live';
   const diagramMode = options._explicit.has('diagramMode')
     ? options.diagramMode
-    : (fmOptions.diagramMode ?? defaultDiagramMode ?? options.diagramMode);
+    : (fmOptions.diagramMode ?? defaultDiagramMode);
+  const templatesDir = options._explicit.has('templatesDir')
+    ? options.templatesDir
+    : (fmOptions.templatesDir ?? options.templatesDir);
   const hrAsPageBreak = options._explicit.has('hrPageBreak')
     ? options.hrPageBreak!
     : (fmOptions.hrAsPageBreak ?? (format === 'html' || format === 'png' || format === 'jpg' || format === 'jpeg' || format === 'webp' ? false : true));
@@ -385,7 +403,7 @@ async function main(): Promise<void> {
   console.log(`Format: ${format.toUpperCase()}`);
   console.log(`Theme: ${theme}`);
   console.log(`HR as page break: ${hrAsPageBreak}`);
-  if (format === 'html' || format === 'png' || format === 'jpg' || format === 'jpeg' || format === 'webp') {
+  if (format === 'pdf' || format === 'html' || format === 'png' || format === 'jpg' || format === 'jpeg' || format === 'webp') {
     console.log(`Diagram mode: ${diagramMode}`);
   }
 
@@ -429,6 +447,7 @@ async function main(): Promise<void> {
       standalone: fmOptions.standalone,
       baseTag: fmOptions.baseTag,
       cdn: fmOptions.cdn,
+      templatesDir,
       image,
       skipFrontMatter: true,
     });

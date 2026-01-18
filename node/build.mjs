@@ -236,6 +236,15 @@ async function build() {
       console.log('Copied themes to dist/themes');
     }
 
+    // Copy template files
+    const templatesDir = path.join(rootDir, 'node/src/templates');
+    const outTemplatesDir = path.join(outDir, 'templates');
+
+    if (fs.existsSync(templatesDir)) {
+      copyDirSync(templatesDir, outTemplatesDir);
+      console.log('Copied templates to dist/templates');
+    }
+    
     // Make the output file executable (banner provides shebang).
     // Note: splitting mode outputs .js files, not .mjs
     fs.chmodSync(outFile, 0o755);

@@ -7,7 +7,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import yaml from 'js-yaml'
 import { NodeDocxExporter, NodeHtmlExporter, NodePdfExporter, NodeImageExporter } from './node-exporter';
-import type { Md2DocxOptions, Md2PdfOptions, Md2HtmlOptions, Md2ImageOptions } from './node-exporter';
+import type { Md2xBaseOptions, Md2DocxOptions, Md2PdfOptions, Md2HtmlOptions, Md2ImageOptions } from './node-exporter';
 
 // ============================================================================
 // Shared types and utilities
@@ -32,6 +32,8 @@ export interface FrontMatterOptions {
   diagramMode?: DiagramMode;
   baseTag?: boolean;
   cdn?: Md2HtmlOptions['cdn'];
+  /** Extra directories to search for md2x templates referenced by ` ```md2x ` blocks */
+  templatesDir?: Md2xBaseOptions['templatesDir'];
   // PDF-specific options
   pdf?: Md2PdfOptions['pdf'];
 }
@@ -172,6 +174,13 @@ export function frontMatterToOptions(data: FrontMatterData): FrontMatterOptions 
     out.cdn = data.cdn as Md2HtmlOptions['cdn'];
   }
 
+  // md2x template directories (HTML/Image live mode)
+  if (typeof (data as any).templatesDir === 'string') {
+    out.templatesDir = (data as any).templatesDir as string;
+  } else if (Array.isArray((data as any).templatesDir)) {
+    out.templatesDir = (data as any).templatesDir.filter((v: unknown) => typeof v === 'string') as string[];
+  }
+
   // PDF-specific options
   if (data.pdf && typeof data.pdf === 'object') {
     out.pdf = data.pdf as Md2PdfOptions['pdf'];
@@ -309,9 +318,10 @@ export async function convert(
 
   const format = options.format ?? fmOptions.format ?? 'pdf';
   const theme = options.theme ?? fmOptions.theme ?? 'default';
-  // Defaults: keep "live" unless the caller/front matter overrides it.
-  // Note: "live" requires network access inside the browser context to load CDN scripts.
-  const defaultDiagramMode: DiagramMode = 'live';
+  // Defaults:
+  // - PDF: use "img" (offline-friendly; avoids runtime JS execution during printing)
+  // - HTML/Image: use "live" unless overridden (requires CDN scripts in browser context)
+  const defaultDiagramMode: DiagramMode = format === 'pdf' ? 'img' : 'live';
   const diagramMode = options.diagramMode ?? fmOptions.diagramMode ?? defaultDiagramMode;
   const hrAsPageBreak = options.hrAsPageBreak ?? fmOptions.hrAsPageBreak ?? (format === 'html' || isImageFormat(format) ? false : true);
   const basePath = options.basePath ?? process.cwd();
@@ -325,17 +335,21 @@ export async function convert(
       theme,
       basePath,
       hrAsPageBreak,
+      diagramMode,
+      cdn: options.cdn ?? fmOptions.cdn,
       pdf: {
         ...options.pdf,
         ...fmOptions.pdf,
         title: options.title ?? fmOptions.title ?? 'Document',
       },
+      templatesDir: options.templatesDir ?? fmOptions.templatesDir,
     });
   } else if (format === 'docx') {
     buffer = await markdownToDocxBuffer(markdownContent, {
       theme,
       basePath,
       hrAsPageBreak,
+      templatesDir: options.templatesDir ?? fmOptions.templatesDir,
     });
   } else if (format === 'html') {
     buffer = await markdownToHtmlBuffer(markdownContent, {
@@ -347,6 +361,7 @@ export async function convert(
       standalone: options.standalone ?? fmOptions.standalone,
       baseTag: options.baseTag ?? fmOptions.baseTag,
       cdn: options.cdn ?? fmOptions.cdn,
+      templatesDir: options.templatesDir ?? fmOptions.templatesDir,
     });
   } else {
     const rawImageOptions = options.image ?? fmOptions.image;
@@ -359,6 +374,7 @@ export async function convert(
       image,
       diagramMode,
       cdn: options.cdn ?? fmOptions.cdn,
+      templatesDir: options.templatesDir ?? fmOptions.templatesDir,
     });
     if (!buffers.length) {
       throw new Error('Image conversion produced no output');

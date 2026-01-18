@@ -499,6 +499,39 @@ export async function createBrowserRenderer(): Promise<BrowserRenderer | null> {
           await pdfPage.setContent(fullHtml, { waitUntil: 'networkidle0' });
         }
 
+        // Best-effort: wait for live bootstrap (md2x/diagrams) to finish if present.
+        try {
+          const hasLive = await pdfPage.evaluate(() => typeof (window as any).__md2xLiveDone !== 'undefined');
+          if (hasLive) {
+            await pdfPage.waitForFunction(() => (window as any).__md2xLiveDone === true, { timeout: 60_000 });
+          }
+        } catch {
+          // ignore
+        }
+
+        // Best-effort: wait for fonts + images so layout is stable before printing.
+        try {
+          await pdfPage.evaluate(async () => {
+            const fontsReady = (document as any).fonts?.ready;
+            if (fontsReady && typeof fontsReady.then === 'function') {
+              await fontsReady;
+            }
+
+            const imgs = Array.from(document.images || []);
+            await Promise.all(
+              imgs.map((img) => {
+                if ((img as HTMLImageElement).complete) return null;
+                return new Promise<void>((resolve) => {
+                  img.addEventListener('load', () => resolve(), { once: true });
+                  img.addEventListener('error', () => resolve(), { once: true });
+                });
+              })
+            );
+          });
+        } catch {
+          // ignore
+        }
+
         // If a diagram is taller than a single printable page, scale it down so it fits.
         // This is best-effort: if the diagram is already constrained by width, it may still be too tall to fit nicely.
         const format = options.format || 'A4';

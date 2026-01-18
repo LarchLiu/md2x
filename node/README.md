@@ -15,6 +15,7 @@ Markdown → PDF/DOCX/HTML/Image converter (local, no server). Supports Mermaid/
 | `--theme` | `-t` | Theme name | `default` | See `--list-themes` |
 | `--diagram-mode` | - | HTML/Image diagram rendering mode | `live` | `img`, `live`, `none` |
 | `--hr-page-break` | - | Convert horizontal rules to page breaks | `true` for PDF/DOCX, `false` for HTML/Image | `true`, `false` |
+| `--templates-dir` | - | Extra template dir for md2x blocks (repeatable; resolved against input dir when relative) | - | Directory path |
 | `--list-themes` | - | List all available themes | - | - |
 
 ### Diagram Modes (HTML/Image)
@@ -113,6 +114,59 @@ image:
   selector: 'div.md2x-diagram[data-md2x-diagram-kind="mermaid"]'
   selectorMode: stitch
 ```
+
+## md2x Template Blocks
+
+Besides diagram blocks (mermaid/dot/vega-lite/infographic), `md2x` also supports template blocks via:
+
+````md
+```md2x
+{
+  type: 'vue',          // "vue" | "html"
+  template: 'example.vue',
+  data: [{ title: 't', message: 'm' }]
+}
+```
+````
+
+```
+//example.vue
+<script setup>
+const data = templateData;
+</script>
+
+<template>
+<div class="my-component">Hello md2x! This is vue template</div>
+<div v-for="(item, index) in data" :key="index">
+  <h2>{{ item.title }}</h2>
+  <p>{{ item.message }}</p>
+</div>
+</template>
+
+<style scoped>
+.my-component {
+  color: red;
+}
+</style>
+```
+
+### Config Fields
+
+- `type`: `"vue"` or `"html"`
+- `template`: template file name/path
+  - if you only pass a filename (e.g. `example.vue`), it is treated as `${type}/${template}` (e.g. `vue/example.vue`)
+- `data`: arbitrary JSON-serializable data (injected by replacing the `templateData` placeholder)
+- `allowScripts` (optional, **unsafe**, html only): when exporting **images** in `diagramMode: "img"`, set `allowScripts: true` to execute inline `<script>` blocks before rendering to PNG.
+  - not supported: `<script type="module">`
+  - external `<script src="...">` is not supported for image rendering (use inline scripts)
+
+### Template Resolution (External Templates)
+
+To load templates from outside the built-in `dist/templates`, use either:
+
+- CLI: `--templates-dir /path/to/templates` (repeatable)
+- Front matter: `templatesDir: /path/to/templates` (string or list)
+
 
 ## Usage
 
