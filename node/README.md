@@ -2,7 +2,52 @@
 
 Markdown → PDF/DOCX/HTML/Image converter (local, no server). Supports Mermaid/Graphviz/Infographic/Vega/Template(vue/svelte/html) rendering, math, and code highlighting.
 
+> Support MCP tools and md2x skill. 🎉
+
 [![npm version](https://img.shields.io/npm/v/md2x.svg?style=flat-square)](https://www.npmjs.com/package/md2x)
+
+## CLI Usage
+
+Export to PDF:
+```bash
+npx md2x input.md
+```
+
+Export to DOCX:
+
+```bash
+npx md2x input.md -f docx
+```
+
+Export to HTML:
+
+```bash
+npx md2x input.md -f html
+```
+
+Export to PNG:
+
+```bash
+npx md2x input.md -f png -o output.png
+```
+
+List themes:
+
+```bash
+npx md2x --list-themes
+```
+
+Use a theme:
+
+```bash
+npx md2x input.md -o output.pdf --theme academic
+```
+
+Help:
+
+```bash
+npx md2x -h
+```
 
 ## CLI Options
 
@@ -209,54 +254,6 @@ cdn:
   svelteBase: "https://esm.sh/svelte@5/"
 ```
 
-
-## Usage
-
-Export to PDF:
-```bash
-npx md2x input.md
-```
-
-Export to DOCX:
-
-```bash
-npx md2x input.md -f docx
-```
-
-Export to HTML:
-
-```bash
-npx md2x input.md -f html
-```
-
-Export to PNG:
-
-```bash
-npx md2x input.md -f png -o output.png
-```
-
-List themes:
-
-```bash
-npx md2x --list-themes
-```
-
-Use a theme:
-
-```bash
-npx md2x input.md -o output.pdf --theme academic
-```
-
-Help:
-
-```bash
-npx md2x -h
-```
-
-## MCP server (Model Context Protocol)
-
-This repo includes an Express-based MCP server that exposes `md2x` as MCP tools over HTTP, so MCP clients can convert Markdown and download the generated HTML/PDF/DOCX from `/resources`.
-
 ## md2x Skill
 
 This repo also includes a skill for driving `md2x` from an agent:
@@ -272,6 +269,10 @@ or
 
 npx add-skill larchliu/md2x
 ```
+
+## MCP server (Model Context Protocol)
+
+This repo includes an Express-based MCP server that exposes `md2x` as MCP tools over HTTP, so MCP clients can convert Markdown and download the generated HTML/PDF/DOCX from `/resources`.
 
 Run:
 
