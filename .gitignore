@@ -34,6 +34,7 @@ dist.*
 
 # Temporary files
 *.tmp
+node/test/out/
 
 # Flutter/Dart related
 .dart_tool/

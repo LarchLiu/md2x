@@ -153,12 +153,6 @@ URLs for the reference above:
 **网络图片：**
 ![Random Photo](https://picsum.photos/400/300)
 
-**GitHub 图片示例：**
-![alt text](https://raw.githubusercontent.com/xicilion/markdown-viewer-extension/refs/heads/main/test/icon48.png "Logo Title Text 1")
-
-**本地图片（相对路径）：**
-![Icon](../icons/icon128.png)
-
 *注：SVG 和 Data URL 图片的详细测试在第 8 节*
 
 ### 2.3 引用块
@@ -1738,9 +1732,9 @@ digraph structs {
 ### 10.1 SVG 文件测试
 
 **本地 SVG 文件：**
-![Basic SVG](./test.svg)
+![Basic SVG](../../../demo/test.svg)
 
-![Feature SVG](./test-features.svg)
+![Feature SVG](../../../demo/test-features.svg)
 
 ### 10.2 Data URL SVG 测试
 
@@ -1760,12 +1754,12 @@ digraph structs {
 
 ### 10.3 内联 SVG 测试
 
-这是文本中的小图标 ![info](./small-icon.svg) 应该内联显示。
+这是文本中的小图标 ![info](../../../demo/small-icon.svg) 应该内联显示。
 
-测试多个小图标：![check](./check-icon.svg) ![arrow](./arrow-down.svg) ![info](./small-icon.svg)
+测试多个小图标：![check](../../../demo/check-icon.svg) ![arrow](../../../demo/arrow-down.svg) ![info](../../../demo/small-icon.svg)
 
 **混合文本：**
-操作成功时显示 ![success](./check-icon.svg) 图标，点击 ![arrow](./arrow-down.svg) 展开详情，查看 ![info](./small-icon.svg) 获取帮助。
+操作成功时显示 ![success](../../../demo/check-icon.svg) 图标，点击 ![arrow](../../../demo/arrow-down.svg) 展开详情，查看 ![info](../../../demo/small-icon.svg) 获取帮助。
 
 ---
 
@@ -2588,8 +2582,6 @@ JSON Canvas 支持四种节点类型：text、file、link、group
 }
 ```
 
----
-
 ### 14.9. 软件开发流程
 
 ```canvas
@@ -2831,5 +2823,70 @@ JSON Canvas 支持四种节点类型：text、file、link、group
   "edges": [
     {"id": "e1", "fromNode": "a", "fromSide": "bottom", "toNode": "b", "toSide": "top", "label": "5px"}
   ]
+}
+```
+
+---
+
+## 15. md2x template
+
+```md2x
+{
+  type: 'vue',
+  template: 'example.vue',
+  data: [{
+    title: 'hello word',
+    message: 'This is a message from md2x!'
+    }, {
+    title: 'vue3-sfc-loader',
+    message: 'This is a message from vue3-sfc-loader!'
+  }]
+}
+```
+
+```md2x
+{
+  type: 'svelte',
+  template: 'example.svelte',
+  data: [{
+    title: 'hello word',
+    message: 'This is a message from md2x!'
+    }, {
+    title: 'svelte compiler',
+    message: 'This is a message from svelte compiler!'
+  }]
+}
+```
+
+```md2x
+{
+  type: 'html',
+  template: 'example.html',
+  allowScripts: true,
+  data: [{
+    title: 'hello word',
+    message: 'This is a message from md2x!'
+    }, {
+    title: 'welcome to the html template',
+    message: 'This is a message from html template!'
+  }]
+}
+```
+
+```md2x
+{
+  type: 'vue',
+  template: 'mapLibre.vue',
+  allowTemplateAssets: true,
+  data: {
+    provider: 'maptiler',
+    style: 'https://api.maptiler.com/maps/streets/style.json?key=3cO0c054wvawvm9jdap8',
+    maptilerKey: '3cO0c054wvawvm9jdap8',
+    maptilerStyle: 'STREETS',
+    center: [116.4074, 39.9042],
+    zoom: 10,
+    width: 1024,
+    height: 1024
+  }
 }
 ```

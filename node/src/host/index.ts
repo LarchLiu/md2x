@@ -317,7 +317,8 @@ function normalizeImageType(format: Extract<OutputFormat, 'png' | 'jpg' | 'jpeg'
  */
 export async function convert(
   markdown: string,
-  options: ConvertOptions = {}
+  options: ConvertOptions = {},
+  fileName?: string
 ): Promise<{ buffer: Buffer; format: OutputFormat; buffers?: Buffer[] }> {
   // Skip front matter parsing if already processed by caller
   const fm = options.skipFrontMatter
@@ -334,6 +335,7 @@ export async function convert(
   const diagramMode = options.diagramMode ?? fmOptions.diagramMode ?? defaultDiagramMode;
   const hrAsPageBreak = options.hrAsPageBreak ?? fmOptions.hrAsPageBreak ?? (format === 'html' || isImageFormat(format) ? false : true);
   const basePath = options.basePath ?? process.cwd();
+  const title = options.title ?? fmOptions.title ?? fileName ?? 'Document'
   const markdownContent = fm.content;
 
   let buffer: Buffer;
@@ -349,7 +351,7 @@ export async function convert(
       pdf: {
         ...options.pdf,
         ...fmOptions.pdf,
-        title: options.title ?? fmOptions.title ?? 'Document',
+        title,
       },
       templatesDir: options.templatesDir ?? fmOptions.templatesDir,
     });
@@ -366,7 +368,7 @@ export async function convert(
       basePath,
       diagramMode,
       hrAsPageBreak,
-      title: options.title ?? fmOptions.title ?? 'Document',
+      title,
       standalone: options.standalone ?? fmOptions.standalone,
       baseTag: options.baseTag ?? fmOptions.baseTag,
       liveRuntime: options.liveRuntime ?? fmOptions.liveRuntime,
@@ -443,16 +445,15 @@ export async function convertFile(
     format = inferFormatFromPath(outputPath) ?? undefined;
   }
 
-  // Set default title from filename for HTML
-  const titleFromFile = path.basename(resolvedInputPath, path.extname(resolvedInputPath));
+  const fileName = path.basename(resolvedInputPath, path.extname(resolvedInputPath));
 
   // Call convert with merged options
   const result = await convert(markdown, {
     ...options,
     format,
     basePath: options.basePath ?? path.dirname(resolvedInputPath),
-    title: options.title ?? titleFromFile,
-  });
+    title: options.title,
+  }, fileName);
 
   // Determine output path
   let resolvedOutputPath: string;

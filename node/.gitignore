@@ -8,4 +8,4 @@
 /test/**/*.jpg
 /test/**/*.jpeg
 /test/**/*.webp
-/test/demo/test-image-split*.md
+/test/out/
