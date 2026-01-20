@@ -590,26 +590,31 @@ async function markdownToHtmlFragment(
   return html;
 }
 
-let __md2xLiveWorkerJsCache: string | null = null;
+const __md2xInlineLiveRuntimeCache = new Map<string, string>();
 
-function loadLiveWorkerJs(): string {
-  if (__md2xLiveWorkerJsCache) return __md2xLiveWorkerJsCache;
+function loadInlineLiveRuntimeJs(filename: string): string {
+  const key = String(filename || '').trim();
+  if (!key) throw new Error('Missing live runtime filename');
+
+  const cached = __md2xInlineLiveRuntimeCache.get(key);
+  if (typeof cached === 'string') return cached;
 
   const moduleDir = getModuleDir();
   const candidates = [
-    // Published package: node/dist/renderer/puppeteer-render-worker.js
-    path.join(moduleDir, 'renderer', 'puppeteer-render-worker.js'),
-    // Dev: node/src/host -> node/dist/renderer/puppeteer-render-worker.js
-    path.join(moduleDir, '..', '..', 'dist', 'renderer', 'puppeteer-render-worker.js'),
+    // Published package: node/dist/renderer/<file>
+    path.join(moduleDir, 'renderer', key),
+    // Dev: node/src/host -> node/dist/renderer/<file>
+    path.join(moduleDir, '..', '..', 'dist', 'renderer', key),
     // Fallbacks
-    path.join(moduleDir, '..', 'dist', 'renderer', 'puppeteer-render-worker.js'),
+    path.join(moduleDir, '..', 'dist', 'renderer', key),
   ];
 
   for (const p of candidates) {
     try {
       if (fs.existsSync(p)) {
-        __md2xLiveWorkerJsCache = fs.readFileSync(p, 'utf-8');
-        return __md2xLiveWorkerJsCache;
+        const src = fs.readFileSync(p, 'utf-8');
+        __md2xInlineLiveRuntimeCache.set(key, src);
+        return src;
       }
     } catch {
       // ignore
@@ -617,7 +622,7 @@ function loadLiveWorkerJs(): string {
   }
 
   throw new Error(
-    'Missing live renderer runtime: puppeteer-render-worker.js. ' +
+    `Missing live renderer runtime: ${key}. ` +
       'Run node node/build.mjs to build node/dist assets.'
   );
 }
@@ -681,6 +686,28 @@ function buildLiveDiagramBootstrap(
     rootSelector: '#markdown-content',
   });
 
+  const chunkByType: Record<string, string> = {
+    mermaid: 'live-runtime-mermaid.js',
+    dot: 'live-runtime-dot.js',
+    vega: 'live-runtime-vega.js',
+    'vega-lite': 'live-runtime-vega.js',
+    infographic: 'live-runtime-infographic.js',
+    canvas: 'live-runtime-canvas.js',
+    html: 'live-runtime-html.js',
+    svg: 'live-runtime-svg.js',
+    md2x: 'live-runtime-md2x.js',
+  };
+
+  const types = Array.isArray(requiredRenderTypes) ? requiredRenderTypes : [];
+  const chunks = new Set<string>();
+  for (const t of types) {
+    const k = String(t || '').trim().toLowerCase();
+    const name = chunkByType[k];
+    if (name) chunks.add(name);
+  }
+
+  const needMermaid = chunks.has('live-runtime-mermaid.js');
+
   if (liveRuntimeMode === 'cdn') {
     const maybeUrl = (typeof liveRuntimeUrl === 'string' && liveRuntimeUrl.trim()) ? liveRuntimeUrl.trim() : '';
     const isSingleJs = !!maybeUrl && /\.js(?:\?.*)?$/i.test(maybeUrl);
@@ -727,28 +754,6 @@ function buildLiveDiagramBootstrap(
     const baseUrlRaw = maybeUrl || getDefaultLiveRuntimeCdnBaseUrl();
     const baseUrl = baseUrlRaw.endsWith('/') ? baseUrlRaw : (baseUrlRaw + '/');
 
-    const chunkByType: Record<string, string> = {
-      mermaid: 'live-runtime-mermaid.js',
-      dot: 'live-runtime-dot.js',
-      vega: 'live-runtime-vega.js',
-      'vega-lite': 'live-runtime-vega.js',
-      infographic: 'live-runtime-infographic.js',
-      canvas: 'live-runtime-canvas.js',
-      html: 'live-runtime-html.js',
-      svg: 'live-runtime-svg.js',
-      md2x: 'live-runtime-md2x.js',
-    };
-
-    const types = Array.isArray(requiredRenderTypes) ? requiredRenderTypes : [];
-    const chunks = new Set<string>();
-    for (const t of types) {
-      const k = String(t || '').trim().toLowerCase();
-      const name = chunkByType[k];
-      if (name) chunks.add(name);
-    }
-
-    const needMermaid = chunks.has('live-runtime-mermaid.js');
-
     const coreUrl = new URL('live-runtime-core.js', baseUrl).href;
     const chunkTags = Array.from(chunks)
       .sort()
@@ -783,18 +788,23 @@ ${chunkTags}
   </script>`;
   }
 
-  const workerSource = loadLiveWorkerJs();
+  const runtimeFiles = ['live-runtime-core.js', ...Array.from(chunks).sort()];
+  const runtimeSources = runtimeFiles.map((f) => ({ file: f, source: loadInlineLiveRuntimeJs(f) }));
 
   return `
   <!-- md2x live diagram renderer (worker mountToDom) (runtime: inline) -->
   <script>try { window.__md2xLiveDone = false; } catch {}</script>
-  <script src="${escapeHtmlText(mermaidSrc)}"></script>
-  <script>
+${needMermaid ? `  <script src="${escapeHtmlText(mermaidSrc)}"></script>\n` : ''}  <script>
   (function () {
-    const workerSource = ${jsonForInlineScript(workerSource)};
-    const s = document.createElement('script');
-    s.textContent = workerSource;
-    document.head.appendChild(s);
+    const runtimeFiles = ${jsonForInlineScript(runtimeFiles)};
+    const runtimeSources = ${jsonForInlineScript(runtimeSources)};
+    for (let i = 0; i < runtimeSources.length; i++) {
+      const src = runtimeSources[i] && runtimeSources[i].source ? String(runtimeSources[i].source) : '';
+      if (!src) continue;
+      const s = document.createElement('script');
+      s.textContent = src;
+      document.head.appendChild(s);
+    }
   })();
   </script>
   <script>
@@ -1344,7 +1354,8 @@ export class NodePdfExporter {
       if (diagramMode === 'live') {
         const baseHref = pathToFileURL(basePath + path.sep).href;
         const md2xTemplateFiles = collectMd2xTemplateFiles(html, basePath, options.templatesDir);
-        html = html + '\n' + buildLiveDiagramBootstrap(themeConfig ?? null, baseHref, options.cdn, md2xTemplateFiles, { mode: 'inline' });
+        const requiredTypes = detectLiveRenderTypesFromHtml(html);
+        html = html + '\n' + buildLiveDiagramBootstrap(themeConfig ?? null, baseHref, options.cdn, md2xTemplateFiles, { mode: 'inline' }, requiredTypes);
       }
 
       // Load CSS
@@ -1416,7 +1427,8 @@ export class NodeImageExporter {
       if (diagramMode === 'live') {
         const baseHref = pathToFileURL(basePath + path.sep).href;
         const md2xTemplateFiles = collectMd2xTemplateFiles(html, basePath, options.templatesDir);
-        html = html + '\n' + buildLiveDiagramBootstrap(themeConfig ?? null, baseHref, options.cdn, md2xTemplateFiles, { mode: 'inline' });
+        const requiredTypes = detectLiveRenderTypesFromHtml(html);
+        html = html + '\n' + buildLiveDiagramBootstrap(themeConfig ?? null, baseHref, options.cdn, md2xTemplateFiles, { mode: 'inline' }, requiredTypes);
       }
 
       let katexCss = '';
@@ -1480,7 +1492,8 @@ export class NodeImageExporter {
       if (diagramMode === 'live') {
         const baseHref = pathToFileURL(basePath + path.sep).href;
         const md2xTemplateFiles = collectMd2xTemplateFiles(html, basePath, options.templatesDir);
-        html = html + '\n' + buildLiveDiagramBootstrap(themeConfig ?? null, baseHref, options.cdn, md2xTemplateFiles, { mode: 'inline' });
+        const requiredTypes = detectLiveRenderTypesFromHtml(html);
+        html = html + '\n' + buildLiveDiagramBootstrap(themeConfig ?? null, baseHref, options.cdn, md2xTemplateFiles, { mode: 'inline' }, requiredTypes);
       }
 
       let katexCss = '';

@@ -33,14 +33,16 @@ describe('HTML export', () => {
     assert.ok(!html.includes('const workerSource ='));
   });
 
-  test('liveRuntime: inline embeds worker bundle', async () => {
+  test('liveRuntime: inline embeds only required runtime sources', async () => {
     const html = await api.markdownToHtmlString('# test', {
       standalone: true,
       diagramMode: 'live',
       liveRuntime: 'inline',
     });
     assert.ok(html.includes('(runtime: inline)'));
-    assert.ok(html.includes('const workerSource ='));
+    assert.ok(html.includes('runtimeFiles'));
+    assert.ok(html.includes('live-runtime-core.js'));
+    assert.ok(!html.includes('const workerSource ='));
   });
 
   test('references Mermaid CDN', () => {
