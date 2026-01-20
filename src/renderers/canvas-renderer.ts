@@ -48,7 +48,7 @@ interface CanvasBounds {
 }
 
 export class JsonCanvasRenderer extends BaseRenderer {
-  private roughOptions: RoughSvgOptions = {
+  protected roughOptions: RoughSvgOptions = {
     roughness: 0.5,
     bowing: 0.5,
   };
@@ -458,7 +458,7 @@ export class JsonCanvasRenderer extends BaseRenderer {
   /**
    * Generate complete SVG from JSON Canvas data
    */
-  private generateSvg(canvas: any, fontFamily: string): string {
+  protected generateSvg(canvas: any, fontFamily: string): string {
     const nodes = canvas.getNodes();
     const edges = canvas.getEdges();
     

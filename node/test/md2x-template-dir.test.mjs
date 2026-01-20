@@ -41,7 +41,7 @@ describe('md2x templateDir option', () => {
       basePath: tmpDocDir,
       diagramMode: 'live',
       standalone: true,
-      templateDir: tmpTplDir,
+      templatesDir: tmpTplDir,
     });
 
     // The template should be embedded from tmpTplDir (not from basePath).

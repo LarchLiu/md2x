@@ -20,6 +20,23 @@ export interface RenderResult {
 }
 
 // =============================================================================
+// DOM Mount Result (for live mode)
+// =============================================================================
+
+/**
+ * Result of mounting a renderer output into the DOM (live mode).
+ *
+ * - `root`: the main element representing the rendered output (used for screenshots / cleanup).
+ * - `cleanup`: unmount/remove any temporary nodes (does not have to remove `root` if caller owns it).
+ * - `done`: optional promise that resolves when rendering is fully settled (fonts/async layout/etc).
+ */
+export interface DomMountResult {
+  root: HTMLElement;
+  cleanup: () => void;
+  done?: Promise<void>;
+}
+
+// =============================================================================
 // Unified Render Result (for plugin system)
 // =============================================================================
 

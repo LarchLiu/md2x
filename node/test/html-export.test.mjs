@@ -13,10 +13,8 @@ let api;
 before(async () => {
   api = await loadApi();
   ensureTestFile();
-  // Ensure HTML file exists
-  if (!fs.existsSync(htmlOutputPath)) {
-    await api.convertFile(inputPath, htmlOutputPath, { theme: 'default' });
-  }
+  // Always regenerate so assertions track current bootstrap strategy.
+  await api.convertFile(inputPath, htmlOutputPath, { theme: 'default' });
 });
 
 describe('HTML export', () => {
@@ -26,37 +24,27 @@ describe('HTML export', () => {
     assert.ok(html.includes('id="markdown-content"'));
   });
 
-  test('includes CDN renderer bootstrap', () => {
+  test('includes live renderer bootstrap', () => {
     const html = fs.readFileSync(htmlOutputPath, 'utf8');
-    assert.ok(html.includes('md2x live diagram renderer (CDN)'));
+    assert.ok(html.includes('md2x live diagram renderer (worker mountToDom)'));
+    assert.ok(html.includes('__md2xRenderDocument'));
+    assert.ok(html.includes('(runtime: cdn)'));
+    assert.ok(html.includes('/dist/renderer/live-runtime-core.js'));
+    assert.ok(!html.includes('const workerSource ='));
+  });
+
+  test('liveRuntime: inline embeds worker bundle', async () => {
+    const html = await api.markdownToHtmlString('# test', {
+      standalone: true,
+      diagramMode: 'live',
+      liveRuntime: 'inline',
+    });
+    assert.ok(html.includes('(runtime: inline)'));
+    assert.ok(html.includes('const workerSource ='));
   });
 
   test('references Mermaid CDN', () => {
     const html = fs.readFileSync(htmlOutputPath, 'utf8');
     assert.ok(html.includes('cdn.jsdelivr.net/npm/mermaid'));
-  });
-
-  test('references Graphviz CDN', () => {
-    const html = fs.readFileSync(htmlOutputPath, 'utf8');
-    assert.ok(
-      html.includes('cdn.jsdelivr.net/npm/@viz-js/viz') ||
-      html.includes('cdn.jsdelivr.net/npm/viz.js')
-    );
-  });
-
-  test('references Vega-Embed CDN', () => {
-    const html = fs.readFileSync(htmlOutputPath, 'utf8');
-    assert.ok(html.includes('cdn.jsdelivr.net/npm/vega-embed'));
-  });
-
-  test('references AntV Infographic CDN', () => {
-    const html = fs.readFileSync(htmlOutputPath, 'utf8');
-    assert.ok(html.includes('cdn.jsdelivr.net/npm/@antv/infographic'));
-  });
-
-  test('includes Vega-Lite v5 CDN mapping', () => {
-    const html = fs.readFileSync(htmlOutputPath, 'utf8');
-    assert.ok(html.includes('vega-lite@5'));
-    assert.ok(html.includes('vega-embed@6'));
   });
 });

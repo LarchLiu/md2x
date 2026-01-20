@@ -1,44 +1,26 @@
 /**
- * Puppeteer Render Worker (Browser)
+ * Live Runtime Core (Browser)
  *
- * Runs inside a Puppeteer-controlled Chromium page.
- * Reuses the same render-worker-core + renderers used by VSCode/mobile iframe worker,
- * but exposes a simple global function for the Node-side to call via page.evaluate().
+ * A small runtime used by exported HTML in `diagramMode: "live"`.
+ * Renderers are registered via separate renderer scripts (chunked build).
  */
 
-import { handleMountToDom, handleRender, hasRenderer, initRenderEnvironment } from '../../../src/renderers/render-worker-core';
+import { handleMountToDom, hasRenderer, initRenderEnvironment } from '../../../src/renderers/render-worker-core';
 import { DirectFetchService, initServices } from '../../../src/renderers/worker/services';
-import { registerAllDomRenderers } from '../../../src/renderers/dom';
-import { DomMd2xRenderer } from '../../../src/renderers/dom/md2x-renderer';
-import type { RendererThemeConfig, RenderResult } from '../../../src/types/index';
+import type { RendererThemeConfig } from '../../../src/types/index';
 
 declare global {
   interface Window {
     __md2xRenderReady?: boolean;
     __md2xLiveDone?: boolean;
     __md2xSetBaseHref?: (href: string) => void;
-    __md2xRender?: (
-      renderType: string,
-      input: string | object,
-      themeConfig?: RendererThemeConfig | null
-    ) => Promise<RenderResult>;
     __md2xRenderDocument?: (opts?: {
       baseHref?: string;
       themeConfig?: RendererThemeConfig | null;
       md2xTemplateFiles?: Record<string, string>;
-      /**
-       * Optional CDN overrides for md2x templates (Vue/Svelte).
-       * Mermaid/DOT/Vega/etc are bundled in the worker (except Mermaid global).
-       */
       cdn?: any;
-      /** Limit processing to a subtree (CSS selector). */
       rootSelector?: string;
     }) => Promise<void>;
-    __md2xRenderToDom?: (
-      input: string | object,
-      themeConfig?: RendererThemeConfig | null
-    ) => Promise<string>;
-    __md2xCleanupDom?: (id: string) => void;
   }
 }
 
@@ -52,28 +34,15 @@ function ensureBaseTag(): HTMLBaseElement {
 }
 
 function init(): void {
-  // Puppeteer worker bundles everything and should support all renderer types.
-  registerAllDomRenderers();
-
-  // Services used by some renderers (e.g. HtmlRenderer remote images)
   initServices({
     fetch: new DirectFetchService(),
   });
 
-  const canvas = document.getElementById('png-canvas') as HTMLCanvasElement | null;
-  initRenderEnvironment({ canvas: canvas ?? undefined });
+  initRenderEnvironment({});
 
   window.__md2xSetBaseHref = (href: string) => {
     const base = ensureBaseTag();
     base.href = href;
-  };
-
-  window.__md2xRender = async (
-    renderType: string,
-    input: string | object,
-    themeConfig: RendererThemeConfig | null = null
-  ): Promise<RenderResult> => {
-    return await handleRender({ renderType, input, themeConfig });
   };
 
   const getLangFromCodeClass = (codeEl: Element): string => {
@@ -174,7 +143,6 @@ function init(): void {
       }
     }
 
-    // Best-effort: wait for fonts so PDF/image captures are stable.
     try {
       if ((document as any).fonts?.ready) {
         await (document as any).fonts.ready;
@@ -182,57 +150,6 @@ function init(): void {
     } catch {}
 
     try { window.__md2xLiveDone = true; } catch {}
-  };
-
-  const domRenderer = new DomMd2xRenderer();
-  const mounts = new Map<string, () => void>();
-
-  const createId = (): string => `md2x-dom-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-
-  window.__md2xRenderToDom = async (
-    input: string | object,
-    themeConfig: RendererThemeConfig | null = null
-  ): Promise<string> => {
-    const id = createId();
-
-    const host = document.createElement('div');
-    host.id = id;
-    host.style.cssText = 'position: absolute; left: 0; top: 0; display: inline-block; background: transparent; padding: 0; margin: 0;';
-    document.body.appendChild(host);
-
-    try {
-      const mounted = await domRenderer.mountToDom(input as any, themeConfig, host);
-
-      // Best-effort: wait a couple of frames + fonts so layout settles before Puppeteer screenshots.
-      try {
-        if (typeof globalThis.requestAnimationFrame === 'function') {
-          await new Promise<void>((r) => globalThis.requestAnimationFrame(() => r()));
-          await new Promise<void>((r) => globalThis.requestAnimationFrame(() => r()));
-        }
-      } catch {}
-      try {
-        if ((document as any).fonts?.ready) {
-          await (document as any).fonts.ready;
-        }
-      } catch {}
-
-      mounts.set(id, () => {
-        try { mounted.cleanup(); } catch {}
-        try { host.remove(); } catch {}
-      });
-      return id;
-    } catch (e) {
-      try { host.remove(); } catch {}
-      throw e;
-    }
-  };
-
-  window.__md2xCleanupDom = (id: string): void => {
-    const fn = mounts.get(id);
-    if (fn) {
-      mounts.delete(id);
-      try { fn(); } catch {}
-    }
   };
 
   window.__md2xRenderReady = true;
@@ -243,3 +160,4 @@ if (document.readyState === 'loading') {
 } else {
   init();
 }
+

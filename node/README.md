@@ -59,13 +59,15 @@ npx md2x -h
 | `--format` | `-f` | Output format | `pdf` | `pdf`, `docx`, `html`, `png`, `jpg/jpeg`, `webp` |
 | `--theme` | `-t` | Theme name | `default` | See `--list-themes` |
 | `--diagram-mode` | - | HTML/Image diagram rendering mode | `live` | `img`, `live`, `none` |
+| `--live-runtime` | - | HTML live runtime injection strategy (only when `diagramMode: live`) | `cdn` | `inline`, `cdn` |
+| `--live-runtime-url` | - | Custom runtime URL when `--live-runtime cdn` | - | URL |
 | `--hr-page-break` | - | Convert horizontal rules to page breaks | `true` for PDF/DOCX, `false` for HTML/Image | `true`, `false` |
 | `--templates-dir` | - | Extra template dir for md2x blocks (repeatable; resolved against input dir when relative) | - | Directory path |
 | `--list-themes` | - | List all available themes | - | - |
 
 ### Diagram Modes (HTML/Image)
 
-- **`live`** (default): Render diagrams in the browser on load using online CDN scripts (Mermaid, @viz-js/viz, Vega-Lite, Infographic)
+- **`live`** (default): Render diagrams in the browser on load using the md2x live runtime (by default it is embedded into the output HTML; see `liveRuntime` below)
 - **`img`**: Pre-render diagrams as embedded images (offline, stable; no CDN)
 - **`none`**: Keep diagram source blocks only (no rendering)
 
@@ -124,6 +126,8 @@ title: "My Doc"
 standalone: true    # full HTML document (default)
 baseTag: true       # emit <base href="file://.../"> for resolving relative paths (default)
 diagramMode: live   # img | live | none
+liveRuntime: cdn    # inline | cdn (default: cdn). Use "inline" for fully self-contained HTML.
+# liveRuntimeUrl: "https://cdn.jsdelivr.net/npm/md2x@0.7.3/dist/renderer/" # chunked runtime base URL
 cdn:                # optional: override CDN URLs (used when diagramMode: live)
   mermaid: "https://cdn.jsdelivr.net/npm/mermaid@11.12.2/dist/mermaid.min.js"
   # Template blocks:

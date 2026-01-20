@@ -22,12 +22,6 @@ export class HtmlRenderer extends BaseRenderer {
     super('html');
   }
 
-  /**
-   * Render HTML to PNG
-   * @param input - HTML content to render
-   * @param themeConfig - Theme configuration
-   * @returns Render result with base64, width, height, format
-   */
   async render(input: string, themeConfig: RendererThemeConfig | null): Promise<RenderResult | null> {
     this.validateInput(input);
     return await this.renderHtmlToPng(input, themeConfig);

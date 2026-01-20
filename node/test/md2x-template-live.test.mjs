@@ -52,17 +52,15 @@ const data = templateData;
 
     const tplHref = pathToFileURL(tplPath).href;
 
-    // 1) Template content is embedded into the live bootstrap (no fetch needed at runtime).
-    assert.ok(html.includes('const md2xTemplateFiles ='));
+    // Template content is embedded into the live bootstrap (no fetch needed at runtime).
+    assert.ok(html.includes('md2xTemplateFiles'));
     assert.ok(html.includes(tplHref));
     // The bootstrap JSON replaces `<` with `\\u003c` to avoid `</script>` hazards.
     assert.ok(html.includes('\\u003cscript setup>'));
     assert.ok(html.includes('templateData'));
 
-    // 2) The live bootstrap includes the placeholder replacement logic.
-    assert.ok(html.includes("split('templateData').join('(' + json + ')')"));
-    assert.ok(html.includes('JSON.stringify(cfg.data'));
-    // Avoid putting a literal closing script tag sequence in the bootstrap source.
-    assert.ok(html.includes("split('</').join('<\\\\/')") || html.includes("split('</').join('<\\/')"));
+    // The new live mode uses the worker-based runtime and calls `__md2xRenderDocument`.
+    assert.ok(html.includes('md2x live diagram renderer (worker mountToDom)'));
+    assert.ok(html.includes('__md2xRenderDocument'));
   });
 });

@@ -8,6 +8,8 @@ import {
   type RenderRequest,
 } from '../render-worker-core';
 
+import { registerAllDomRenderers } from '../dom';
+
 import {
   RenderWorkerMessageTypes,
   type RenderDiagramPayload,
@@ -62,6 +64,9 @@ export type BootstrapResult = {
 
 export function bootstrapRenderWorker(channel: RenderWorkerChannel, options: BootstrapOptions = {}): BootstrapResult {
   let internalReady = false;
+
+  // Workers should use DOM-capable renderers so live mode can mount diagrams without falling back to PNG <img>.
+  registerAllDomRenderers();
 
   const getReady = options.getReady ?? (() => internalReady);
 

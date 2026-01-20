@@ -95,7 +95,7 @@ type VueSfcLoaderGlobals = {
   loadModule: (path: string, options: any) => Promise<any>;
 };
 
-async function dynamicImport(url: string): Promise<any> {
+export async function dynamicImport(url: string): Promise<any> {
   // Keep the import truly dynamic so bundlers don't try to resolve CDN URLs at build time.
   return await import(/* @vite-ignore */ url);
 }
@@ -106,13 +106,13 @@ function normalizeUrlBase(base: string): string {
   return b.endsWith('/') ? b : `${b}/`;
 }
 
-function normalizePkgEntryUrl(base: string): string {
+export function normalizePkgEntryUrl(base: string): string {
   const b = String(base || '').trim();
   if (!b) return b;
   return b.endsWith('/') ? b.slice(0, -1) : b;
 }
 
-function rewriteSvelteModuleSpecifiers(code: string, svelteBase: string): string {
+export function rewriteSvelteModuleSpecifiers(code: string, svelteBase: string): string {
   const base = normalizeUrlBase(svelteBase);
   if (!base) return code;
 
@@ -480,7 +480,7 @@ function jsonForInlineJs(value: unknown): string {
   return JSON.stringify(value).replace(/</g, '\\u003c');
 }
 
-function injectTemplateData(source: string, data: unknown): string {
+export function injectTemplateData(source: string, data: unknown): string {
   const json = jsonForInlineJs(data ?? null);
   // Keep it simple and robust: treat templateData as an identifier placeholder.
   return String(source || '').split('templateData').join(`(${json})`);
@@ -518,7 +518,7 @@ function normalizeTemplateConfig(value: unknown): TemplateConfig | null {
   return { assets: { scripts, styles } };
 }
 
-function extractTemplateConfigFromHead(source: string): {
+export function extractTemplateConfigFromHead(source: string): {
   source: string;
   templateConfig: TemplateConfig | null;
   error?: string;
@@ -586,7 +586,7 @@ async function loadCssOnce(href: string): Promise<void> {
   });
 }
 
-async function loadTemplateAssets(templateConfig: TemplateConfig | null): Promise<void> {
+export async function loadTemplateAssets(templateConfig: TemplateConfig | null): Promise<void> {
   const scripts = normalizeStringList(templateConfig?.assets?.scripts);
   const styles = normalizeStringList(templateConfig?.assets?.styles);
 
@@ -642,7 +642,7 @@ export class Md2xRenderer extends BaseRenderer {
     super('md2x');
   }
 
-  private getTemplateSource(
+  protected getTemplateSource(
     templateFiles: Record<string, string> | undefined,
     type: string,
     templateRaw: string
@@ -669,7 +669,7 @@ export class Md2xRenderer extends BaseRenderer {
     return { templateRef: ref || raw, source: null };
   }
 
-  private async ensureVueRuntime(cdn?: { vue?: string; vueSfcLoader?: string }): Promise<void> {
+  protected async ensureVueRuntime(cdn?: { vue?: string; vueSfcLoader?: string }): Promise<void> {
     if (this.vueReady) return this.vueReady;
 
     const vueSrc = cdn?.vue || 'https://unpkg.com/vue@3/dist/vue.global.js';
@@ -684,7 +684,7 @@ export class Md2xRenderer extends BaseRenderer {
     return this.vueReady;
   }
 
-  private async ensureSvelteCompiler(cdn?: { svelteCompiler?: string }): Promise<any> {
+  protected async ensureSvelteCompiler(cdn?: { svelteCompiler?: string }): Promise<any> {
     if (this.svelteCompilerReady) return this.svelteCompilerReady;
 
     const compilerSrc =
@@ -708,7 +708,7 @@ export class Md2xRenderer extends BaseRenderer {
     return await this.htmlRenderer.render(html, themeConfig);
   }
 
-  private async runHtmlTemplateScripts(
+  protected async runHtmlTemplateScripts(
     root: HTMLElement,
     templateFiles: Record<string, string> | undefined
   ): Promise<void> {
@@ -1049,239 +1049,6 @@ export class Md2xRenderer extends BaseRenderer {
       } catch {}
       this.removeContainer(container);
     }
-  }
-
-  /**
-   * Mount an md2x template into the DOM (instead of converting to PNG via Svg foreignObject).
-   *
-   * This is mainly useful for Node/Puppeteer screenshot-based exports where canvas/WebGL content
-   * (e.g. MapLibre) must be captured as pixels.
-   */
-  async mountToDom(
-    input: Md2xRenderInput,
-    themeConfig: RendererThemeConfig | null,
-    container?: HTMLElement
-  ): Promise<Md2xDomMountResult> {
-    const raw = typeof input === 'string' ? input : input.code;
-    this.validateInput(raw);
-
-    const cfg = parseMd2xTemplateConfig(raw);
-    const templateFiles = typeof input === 'string' ? undefined : input.templateFiles;
-    const cdn = typeof input === 'string' ? undefined : input.cdn;
-
-    const { templateRef, source } = this.getTemplateSource(templateFiles, cfg.type, cfg.template);
-    if (!source) {
-      // Keep behavior consistent with other render paths.
-      const root = document.createElement('div');
-      root.textContent = `Missing md2x template: ${templateRef || cfg.template}`;
-      return { root, cleanup: () => {} };
-    }
-
-    const extracted = extractTemplateConfigFromHead(source);
-    if (cfg.allowTemplateAssets) {
-      if (extracted.error) {
-        const root = document.createElement('div');
-        root.textContent = `Invalid TemplateConfig JSON: ${extracted.error}`;
-        return { root, cleanup: () => {} };
-      }
-      await loadTemplateAssets(extracted.templateConfig);
-    }
-
-    const host =
-      container ??
-      (() => {
-        const el = document.createElement('div');
-        el.style.cssText = 'position: absolute; left: 0; top: 0; display: inline-block; background: transparent; padding: 0; margin: 0;';
-        document.body.appendChild(el);
-        return el;
-      })();
-
-    // Ensure the host is empty.
-    try { host.innerHTML = ''; } catch {}
-
-    if (cfg.type === 'html') {
-      const mount = document.createElement('div');
-      mount.style.cssText = 'display: inline-block;';
-      host.appendChild(mount);
-
-      const injected = injectTemplateData(extracted.source, cfg.data);
-      mount.innerHTML = injected;
-
-      const cleanup = () => {
-        try { mount.remove(); } catch {}
-        if (!container) this.removeContainer(host);
-      };
-
-      if (cfg.allowScripts) {
-        await this.runHtmlTemplateScripts(mount, templateFiles);
-      }
-
-      return { root: host, cleanup };
-    }
-
-    if (cfg.type === 'vue') {
-      try {
-        await this.ensureVueRuntime(cdn);
-      } catch (e) {
-        const root = document.createElement('div');
-        root.textContent = `Vue runtime unavailable: ${(e as Error).message}`;
-        return { root, cleanup: () => {} };
-      }
-
-      const Vue = (globalThis as any).Vue as VueGlobals | undefined;
-      const loader = (globalThis as any)['vue3-sfc-loader'] as VueSfcLoaderGlobals | undefined;
-      if (!Vue || !loader || typeof loader.loadModule !== 'function') {
-        const root = document.createElement('div');
-        root.textContent = 'Vue runtime not available (missing Vue / vue3-sfc-loader)';
-        return { root, cleanup: () => {} };
-      }
-
-      const styles: string[] = [];
-      const patchedSfc = injectTemplateData(extracted.source, cfg.data);
-      const sfcKey = templateRef || cfg.template;
-
-      const options = {
-        moduleCache: { vue: Vue },
-        getFile: async (url: string) => {
-          if (url === sfcKey || url.endsWith('/' + sfcKey) || url.endsWith('\\' + sfcKey)) return patchedSfc;
-          const files = templateFiles ?? {};
-          if (typeof files[url] === 'string') return files[url];
-          try {
-            const abs = new URL(url, document.baseURI).href;
-            if (typeof files[abs] === 'string') return files[abs];
-          } catch {}
-          return null;
-        },
-        addStyle: (textContent: string) => {
-          if (typeof textContent === 'string' && textContent.trim()) {
-            styles.push(textContent);
-          }
-        },
-      };
-
-      const mount = document.createElement('div');
-      mount.style.cssText = 'display: inline-block;';
-      host.appendChild(mount);
-
-      let app: any = null;
-      let styleEl: HTMLStyleElement | null = null;
-      try {
-        const component = await loader.loadModule(sfcKey, options);
-        app = Vue.createApp({ render: () => Vue.h(component) });
-        app.mount(mount);
-        try { await Vue.nextTick(); } catch {}
-        try { if ((document as any).fonts?.ready) await (document as any).fonts.ready; } catch {}
-
-        if (styles.length) {
-          styleEl = document.createElement('style');
-          styleEl.textContent = styles.join('\n');
-          document.head.appendChild(styleEl);
-        }
-      } catch (e) {
-        try { mount.textContent = `Failed to mount Vue template: ${(e as Error).message}`; } catch {}
-      }
-
-      const cleanup = () => {
-        try { if (app && typeof app.unmount === 'function') app.unmount(); } catch {}
-        try { mount.remove(); } catch {}
-        try { if (styleEl) styleEl.remove(); } catch {}
-        if (!container) this.removeContainer(host);
-      };
-
-      return { root: host, cleanup };
-    }
-
-    // Svelte DOM mount (best-effort; still useful for screenshots).
-    if (cfg.type === 'svelte') {
-      let compilerMod: any;
-      try {
-        compilerMod = await this.ensureSvelteCompiler(cdn);
-      } catch (e) {
-        const root = document.createElement('div');
-        root.textContent = `Svelte compiler unavailable: ${(e as Error).message}`;
-        return { root, cleanup: () => {} };
-      }
-
-      const compileFn =
-        (compilerMod as any)?.compile ||
-        (compilerMod as any)?.default?.compile ||
-        (compilerMod as any)?.svelte?.compile;
-      if (typeof compileFn !== 'function') {
-        const root = document.createElement('div');
-        root.textContent = 'Svelte compiler not available (missing compile())';
-        return { root, cleanup: () => {} };
-      }
-
-      const patched = injectTemplateData(extracted.source, cfg.data);
-
-      let compiled: any;
-      try {
-        try {
-          compiled = compileFn(patched, { filename: templateRef || cfg.template || 'md2x.svelte', generate: 'client' });
-        } catch {
-          compiled = compileFn(patched, { filename: templateRef || cfg.template || 'md2x.svelte', generate: 'dom' });
-        }
-      } catch (e) {
-        const root = document.createElement('div');
-        root.textContent = `Failed to compile Svelte template: ${(e as Error).message}`;
-        return { root, cleanup: () => {} };
-      }
-
-      const jsCode = String(compiled?.js?.code || '');
-      const cssCode = String(compiled?.css?.code || '');
-      if (!jsCode.trim()) {
-        const root = document.createElement('div');
-        root.textContent = 'Svelte compile returned no JS output';
-        return { root, cleanup: () => {} };
-      }
-
-      const svelteBase = cdn?.svelteBase || 'https://esm.sh/svelte@5/';
-      const moduleCode = rewriteSvelteModuleSpecifiers(jsCode, svelteBase);
-
-      const mount = document.createElement('div');
-      mount.style.cssText = 'display: inline-block;';
-      host.appendChild(mount);
-
-      let instance: any = null;
-      let unmountFn: ((inst: any) => void) | null = null;
-      let blobUrl: string | null = null;
-      let styleEl: HTMLStyleElement | null = null;
-
-      try {
-        blobUrl = URL.createObjectURL(new Blob([moduleCode], { type: 'text/javascript' }));
-        const mod = await dynamicImport(blobUrl);
-        const Comp = (mod as any)?.default;
-        if (typeof Comp !== 'function') throw new Error('Compiled Svelte module has no default component export');
-
-        const runtime = await dynamicImport(normalizePkgEntryUrl(svelteBase));
-        const mountFn = (runtime as any)?.mount;
-        unmountFn = typeof (runtime as any)?.unmount === 'function' ? (runtime as any).unmount : null;
-        if (typeof mountFn !== 'function') throw new Error('Svelte runtime mount() not available');
-        instance = mountFn(Comp, { target: mount });
-
-        if (cssCode.trim()) {
-          styleEl = document.createElement('style');
-          styleEl.textContent = cssCode;
-          document.head.appendChild(styleEl);
-        }
-      } catch (e) {
-        try { mount.textContent = `Failed to mount Svelte template: ${(e as Error).message}`; } catch {}
-      }
-
-      const cleanup = () => {
-        try { if (instance && unmountFn) unmountFn(instance); } catch {}
-        try { if (blobUrl) URL.revokeObjectURL(blobUrl); } catch {}
-        try { mount.remove(); } catch {}
-        try { if (styleEl) styleEl.remove(); } catch {}
-        if (!container) this.removeContainer(host);
-      };
-
-      return { root: host, cleanup };
-    }
-
-    const root = document.createElement('div');
-    root.textContent = `Unsupported md2x type: ${(cfg as any).type}`;
-    return { root, cleanup: () => {} };
   }
 
   async render(input: Md2xRenderInput, themeConfig: RendererThemeConfig | null): Promise<RenderResult | null> {

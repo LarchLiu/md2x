@@ -47,6 +47,7 @@ export type {
   RenderResultDisplay,
   UnifiedRenderResult,
   RendererThemeConfig,
+  DomMountResult,
 } from './render';
 
 // =============================================================================

@@ -13,6 +13,7 @@ import { InfographicRenderer } from './infographic-renderer';
 import { JsonCanvasRenderer } from './canvas-renderer';
 import { Md2xRenderer } from './md2x-renderer';
 import type { BaseRenderer } from './base-renderer';
+import { registerRenderer } from './renderer-registry';
 
 // Export renderer instances array
 export const renderers: BaseRenderer[] = [
@@ -26,3 +27,9 @@ export const renderers: BaseRenderer[] = [
   new JsonCanvasRenderer(),
   new Md2xRenderer()
 ];
+
+export function registerAllRenderers(): void {
+  for (const r of renderers) {
+    registerRenderer(r);
+  }
+}

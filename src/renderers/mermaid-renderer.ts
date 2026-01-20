@@ -23,7 +23,7 @@ function getMermaid(): MermaidAPI {
 }
 
 export class MermaidRenderer extends BaseRenderer {
-  private roughOptions: RoughSvgOptions = {
+  protected roughOptions: RoughSvgOptions = {
     roughness: 0.5,
     bowing: 0.5,
   };
@@ -73,7 +73,7 @@ export class MermaidRenderer extends BaseRenderer {
    * @param code - Mermaid diagram code
    * @returns true if the code is a sequence diagram
    */
-  private isSequenceDiagram(code: string): boolean {
+  protected isSequenceDiagram(code: string): boolean {
     const trimmed = code.trim().toLowerCase();
     return trimmed.startsWith('sequencediagram');
   }
@@ -83,7 +83,7 @@ export class MermaidRenderer extends BaseRenderer {
    * @param code - Mermaid diagram code
    * @returns Preprocessed code with \n replaced by <br>
    */
-  private preprocessCode(code: string): string {
+  protected preprocessCode(code: string): string {
     // Globally replace literal \n with <br> for line breaks in labels
     // This is safe because actual newlines are real line breaks, not \n literals
     return code.replace(/\\n/g, '<br>');
@@ -95,18 +95,12 @@ export class MermaidRenderer extends BaseRenderer {
    * @param themeConfig - Theme configuration
    * @returns SVG with hand-drawn effect
    */
-  private applyRoughEffectToSvg(svgString: string, themeConfig: RendererThemeConfig | null): string {
+  protected applyRoughEffectToSvg(svgString: string, themeConfig: RendererThemeConfig | null): string {
     const isHandDrawn = themeConfig?.diagramStyle === 'handDrawn';
     if (!isHandDrawn) return svgString;
     return applyRoughEffect(svgString, this.roughOptions);
   }
 
-  /**
-   * Render Mermaid diagram to PNG
-   * @param code - Mermaid diagram code
-   * @param themeConfig - Theme configuration
-   * @returns Render result with base64, width, height, format
-   */
   async render(code: string, themeConfig: RendererThemeConfig | null): Promise<RenderResult> {
     // Ensure renderer is initialized
     if (!this._initialized) {

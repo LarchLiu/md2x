@@ -82,20 +82,26 @@ export type Md2HtmlOptions = Md2xBaseOptions & {
   /** When true, returns a full HTML document with embedded CSS (default: true) */
   standalone?: boolean;
   /**
+   * Live diagram runtime injection strategy (only used when `diagramMode: "live"`).
+   * - "inline": embed the runtime JS into the HTML (largest output, most self-contained)
+   * - "cdn": reference the runtime JS from a CDN (smallest HTML output)
+   *
+   * Default: "cdn" for HTML export (to keep output small); PDF/Image always use "inline".
+   */
+  liveRuntime?: 'inline' | 'cdn';
+  /**
+   * Custom runtime URL when `liveRuntime: "cdn"`.
+   *
+   * - For the new chunked runtime: provide a base URL that ends with `/dist/renderer/` (or any directory URL),
+   *   e.g. "https://cdn.jsdelivr.net/npm/md2x@0.7.3/dist/renderer/".
+   * - Back-compat: you can also provide a full `.js` URL to a monolithic runtime script.
+   */
+  liveRuntimeUrl?: string;
+  /**
    * Optional CDN overrides (URLs). Only used when `diagramMode: "live"`.
    */
   cdn?: Partial<{
     mermaid: string;
-    /** Graphviz runtime (preferred): @viz-js/viz global build */
-    vizGlobal: string;
-    /** Legacy Graphviz runtime: viz.js (kept for compatibility) */
-    viz: string;
-    /** Legacy Graphviz runtime dependency: viz.js full.render.js (kept for compatibility) */
-    vizRender: string;
-    vega: string;
-    vegaLite: string;
-    vegaEmbed: string;
-    infographic: string;
     /** Vue 3 global build (required for md2x vue templates in live mode) */
     vue: string;
     /** vue3-sfc-loader UMD (required for md2x vue templates in live mode) */
@@ -584,1003 +590,235 @@ async function markdownToHtmlFragment(
   return html;
 }
 
+let __md2xLiveWorkerJsCache: string | null = null;
+
+function loadLiveWorkerJs(): string {
+  if (__md2xLiveWorkerJsCache) return __md2xLiveWorkerJsCache;
+
+  const moduleDir = getModuleDir();
+  const candidates = [
+    // Published package: node/dist/renderer/puppeteer-render-worker.js
+    path.join(moduleDir, 'renderer', 'puppeteer-render-worker.js'),
+    // Dev: node/src/host -> node/dist/renderer/puppeteer-render-worker.js
+    path.join(moduleDir, '..', '..', 'dist', 'renderer', 'puppeteer-render-worker.js'),
+    // Fallbacks
+    path.join(moduleDir, '..', 'dist', 'renderer', 'puppeteer-render-worker.js'),
+  ];
+
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) {
+        __md2xLiveWorkerJsCache = fs.readFileSync(p, 'utf-8');
+        return __md2xLiveWorkerJsCache;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  throw new Error(
+    'Missing live renderer runtime: puppeteer-render-worker.js. ' +
+      'Run node node/build.mjs to build node/dist assets.'
+  );
+}
+
+function detectLiveRenderTypesFromHtml(html: string): string[] {
+  const src = String(html || '');
+  const types = new Set<string>();
+  const re = /\blanguage-([a-z0-9-]+)\b/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(src))) {
+    let t = String(m[1] || '').toLowerCase();
+    if (t === 'graphviz' || t === 'gv') t = 'dot';
+    if (t === 'vegalite') t = 'vega-lite';
+    if (t) types.add(t);
+  }
+  return Array.from(types);
+}
+
+function getDefaultLiveRuntimeCdnBaseUrl(): string {
+  try {
+    const moduleDir = getModuleDir();
+    const pkgPath = path.join(moduleDir, '..', 'package.json');
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8')) as any;
+    const name = typeof pkg?.name === 'string' ? pkg.name : 'md2x';
+    const version = typeof pkg?.version === 'string' ? pkg.version : 'latest';
+    // Keep scoped package names as path segments (e.g. "@scope/pkg").
+    const safeName = encodeURIComponent(name).replace(/%2F/g, '/');
+    const safeVersion = encodeURIComponent(version);
+    return `https://cdn.jsdelivr.net/npm/${safeName}@${safeVersion}/dist/renderer/`;
+  } catch {
+    return 'https://cdn.jsdelivr.net/npm/md2x@latest/dist/renderer/';
+  }
+}
+
 function buildLiveDiagramBootstrap(
   themeConfig: RendererThemeConfig | null,
   baseHref: string,
   cdnOverrides: Md2HtmlOptions['cdn'] | undefined,
-  md2xTemplateFiles: Record<string, string> | undefined
+  md2xTemplateFiles: Record<string, string> | undefined,
+  runtime?: { mode?: 'inline' | 'cdn'; url?: string },
+  requiredRenderTypes?: string[]
 ): string {
   // Prevent `</script>` inside embedded JSON (e.g., Vue SFC source) from terminating the bootstrap script tag.
   const jsonForInlineScript = (value: unknown): string => JSON.stringify(value).replace(/</g, '\\u003c');
 
-    const cdnBaseDefaults = {
-      mermaid: 'https://cdn.jsdelivr.net/npm/mermaid@11.12.2/dist/mermaid.min.js',
-    // Preferred: modern Graphviz WASM build (provides window.Viz.instance()).
-    vizGlobal: 'https://cdn.jsdelivr.net/npm/@viz-js/viz@3.24.0/dist/viz-global.js',
-    // Legacy fallback (provides window.Viz constructor).
-    viz: 'https://cdn.jsdelivr.net/npm/viz.js@2.1.2/viz.js',
-    vizRender: 'https://cdn.jsdelivr.net/npm/viz.js@2.1.2/full.render.js',
-    infographic: 'https://cdn.jsdelivr.net/npm/@antv/infographic@0.2.7/dist/infographic.min.js',
-    // For md2x template blocks (Vue SFC).
-    vue: 'https://unpkg.com/vue@3/dist/vue.global.js',
-    vueSfcLoader: 'https://cdn.jsdelivr.net/npm/vue3-sfc-loader/dist/vue3-sfc-loader.js',
-    // For md2x template blocks (Svelte 5).
-    // NOTE: We intentionally use esm.sh so the compiler (and its dependencies) can load in browsers via `import()`.
-    svelteCompiler: 'https://esm.sh/svelte@5/compiler',
-    // Runtime module base (used to rewrite bare imports like "svelte/internal/client").
-    svelteBase: 'https://esm.sh/svelte@5/',
-  } as const;
+  // Mermaid is still loaded as a global for MermaidRenderer.
+  const mermaidSrc = (cdnOverrides && (cdnOverrides as any).mermaid)
+    ? String((cdnOverrides as any).mermaid)
+    : 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js';
 
-  const cdnVegaDefaultsByMajor = {
-    // Vega-Lite v5 is typically used with Vega v5 + Vega-Embed v6.
-    5: {
-      vega: 'https://cdn.jsdelivr.net/npm/vega@5/build/vega.min.js',
-      vegaLite: 'https://cdn.jsdelivr.net/npm/vega-lite@5/build/vega-lite.min.js',
-      vegaEmbed: 'https://cdn.jsdelivr.net/npm/vega-embed@6/build/vega-embed.min.js',
-    },
-    // Vega-Lite v6 is typically used with Vega v6 + Vega-Embed v7.
-    6: {
-      vega: 'https://cdn.jsdelivr.net/npm/vega@6/build/vega.min.js',
-      vegaLite: 'https://cdn.jsdelivr.net/npm/vega-lite@6/build/vega-lite.min.js',
-      vegaEmbed: 'https://cdn.jsdelivr.net/npm/vega-embed@7/build/vega-embed.min.js',
-    },
-  } as const;
+  // Default is inline (compat). HTML export can opt into `liveRuntime: "cdn"` to avoid
+  // embedding the full runtime JS into the HTML output.
+  const liveRuntimeMode: 'inline' | 'cdn' = runtime?.mode === 'cdn' ? 'cdn' : 'inline';
+  const liveRuntimeUrl = runtime?.url;
 
-  return `
-  <!-- md2x live diagram renderer (CDN) -->
+  const optsJson = jsonForInlineScript({
+    baseHref: baseHref || '',
+    themeConfig: themeConfig ?? null,
+    md2xTemplateFiles: md2xTemplateFiles ?? {},
+    cdn: cdnOverrides ?? {},
+    rootSelector: '#markdown-content',
+  });
+
+  if (liveRuntimeMode === 'cdn') {
+    const maybeUrl = (typeof liveRuntimeUrl === 'string' && liveRuntimeUrl.trim()) ? liveRuntimeUrl.trim() : '';
+    const isSingleJs = !!maybeUrl && /\.js(?:\?.*)?$/i.test(maybeUrl);
+
+    // Back-compat: allow pointing to a single monolithic runtime script.
+    if (isSingleJs) {
+      const workerUrl = maybeUrl;
+      return `
+  <!-- md2x live diagram renderer (worker mountToDom) (runtime: cdn) -->
+  <script>try { window.__md2xLiveDone = false; } catch {}</script>
+  <script src="${escapeHtmlText(mermaidSrc)}"></script>
+  <script src="${escapeHtmlText(workerUrl)}"></script>
   <script>
   (function () {
-    const themeConfig = ${jsonForInlineScript(themeConfig ?? null)};
-    const baseHref = ${jsonForInlineScript(baseHref)};
-    const cdnOverrides = ${jsonForInlineScript(cdnOverrides ?? {})};
-    const cdnBaseDefaults = ${jsonForInlineScript(cdnBaseDefaults)};
-    const cdnVegaDefaultsByMajor = ${jsonForInlineScript(cdnVegaDefaultsByMajor)};
-    const md2xTemplateFiles = ${jsonForInlineScript(md2xTemplateFiles ?? {})};
+    const opts = ${optsJson};
+    const workerUrl = ${jsonForInlineScript(workerUrl)};
+    const start = Date.now();
 
-    try { window.__md2xLiveDone = false; } catch {}
-
-    function loadScript(src) {
-      return new Promise((resolve, reject) => {
-        const s = document.createElement('script');
-        s.src = src;
-        s.async = false;
-        s.onload = () => { try { s.__md2xLoaded = true; } catch {} resolve(); };
-        s.onerror = () => { try { s.__md2xLoaded = true; } catch {} reject(new Error('Failed to load script: ' + src)); };
-        document.head.appendChild(s);
-      });
-    }
-
-    function normalizeStringList(value) {
-      if (!Array.isArray(value)) return [];
-      const out = [];
-      const seen = new Set();
-      for (const v of value) {
-        if (typeof v !== 'string') continue;
-        const s = v.trim();
-        if (!s) continue;
-        if (seen.has(s)) continue;
-        seen.add(s);
-        out.push(s);
+    function runWhenReady() {
+      const fn = window.__md2xRenderDocument;
+      if (typeof fn === 'function') {
+        fn(opts).catch(() => { try { window.__md2xLiveDone = true; } catch {} });
+        return;
       }
-      return out;
-    }
-
-    function normalizeTemplateConfig(value) {
-      if (!value || typeof value !== 'object') return null;
-      const assets = value.assets;
-      if (!assets || typeof assets !== 'object') return null;
-      const scripts = normalizeStringList(assets.scripts);
-      const styles = normalizeStringList(assets.styles);
-      if (!scripts.length && !styles.length) return null;
-      return { assets: { scripts, styles } };
-    }
-
-    function extractTemplateConfigFromHead(source) {
-      const raw = String(source || '');
-      if (!raw) return { source: raw, templateConfig: null };
-
-      let i = 0;
-      // BOM
-      if (raw.charCodeAt(0) === 0xfeff) i = 1;
-      // leading whitespace/newlines
-      while (i < raw.length) {
-        const ch = raw[i];
-        if (ch === ' ' || ch === '\\t' || ch === '\\n' || ch === '\\r') i++;
-        else break;
-      }
-
-      if (raw.slice(i, i + 4) !== '<!--') return { source: raw, templateConfig: null };
-      const end = raw.indexOf('-->', i + 4);
-      if (end === -1) return { source: raw, templateConfig: null };
-
-      const commentBody = raw.slice(i + 4, end).trim();
-      const prefix = 'TemplateConfig:';
-      if (commentBody.slice(0, prefix.length) !== prefix) return { source: raw, templateConfig: null };
-
-      const jsonText = commentBody.slice(prefix.length).trim();
-
-      // Strip the header comment even if parsing fails (so SFC/Svelte compilers won't choke on it).
-      let after = raw.slice(end + 3);
-      if (after.slice(0, 2) === '\\r\\n') after = after.slice(2);
-      else if (after[0] === '\\n' || after[0] === '\\r') after = after.slice(1);
-      const cleaned = raw.slice(0, i) + after;
-
-      if (!jsonText) return { source: cleaned, templateConfig: null };
-
-      try {
-        const parsed = JSON.parse(jsonText);
-        return { source: cleaned, templateConfig: normalizeTemplateConfig(parsed) };
-      } catch (e) {
-        const msg = (e && e.message) ? e.message : String(e);
-        return { source: cleaned, templateConfig: null, error: msg };
-      }
-    }
-
-    function loadCssOnce(href) {
-      const url = resolveHref(href, baseHref || undefined);
-      if (!url) return Promise.resolve();
-      const esc = (window.CSS && typeof window.CSS.escape === 'function') ? window.CSS.escape(url) : String(url).replace(/"/g, '\\\\\"');
-      const existing = document.querySelector('link[rel="stylesheet"][href="' + esc + '"]');
-      if (existing) return Promise.resolve();
-
-      return new Promise((resolve) => {
-        const link = document.createElement('link');
-        link.rel = 'stylesheet';
-        link.href = url;
-        link.onload = () => resolve();
-        link.onerror = () => resolve();
-        document.head.appendChild(link);
-      });
-    }
-
-    function loadScriptOnce(src, globalName) {
-      if (globalName) {
+      if (Date.now() - start > 15000) {
         try {
-          if (window[globalName]) return Promise.resolve();
+          console.error('[md2x] live runtime not loaded (cdn). Check network/CSP or use liveRuntime=\"inline\".', workerUrl);
         } catch {}
-      }
-
-      const url = resolveHref(src, baseHref || undefined);
-      if (!url) return Promise.resolve();
-
-      const esc = (window.CSS && typeof window.CSS.escape === 'function') ? window.CSS.escape(url) : String(url).replace(/"/g, '\\\\\"');
-      const existing = document.querySelector('script[src="' + esc + '"]');
-      if (existing) {
-        if (existing.__md2xLoaded) return Promise.resolve();
-        return new Promise((resolve, reject) => {
-          existing.addEventListener('load', () => { try { existing.__md2xLoaded = true; } catch {} resolve(); }, { once: true });
-          existing.addEventListener('error', () => reject(new Error('Failed to load script: ' + url)), { once: true });
-        });
-      }
-
-      return loadScript(url).then(() => {
-        try {
-          const el = document.querySelector('script[src="' + esc + '"]');
-          if (el) el.__md2xLoaded = true;
-        } catch {}
-      });
-    }
-
-    async function loadTemplateAssets(templateConfig) {
-      const scripts = normalizeStringList(templateConfig && templateConfig.assets ? templateConfig.assets.scripts : null);
-      const styles = normalizeStringList(templateConfig && templateConfig.assets ? templateConfig.assets.styles : null);
-      for (const href of styles) {
-        await loadCssOnce(href);
-      }
-      for (const src of scripts) {
-        await loadScriptOnce(src);
-      }
-    }
-
-    let __md2xSvelteCompilerPromise = null;
-
-    function getCdnValue(key) {
-      try {
-        if (cdnOverrides && Object.prototype.hasOwnProperty.call(cdnOverrides, key) && cdnOverrides[key]) return cdnOverrides[key];
-      } catch {}
-      return cdnBaseDefaults[key];
-    }
-
-    function normalizeUrlBase(base) {
-      const b = String(base || '').trim();
-      if (!b) return b;
-      return b.endsWith('/') ? b : (b + '/');
-    }
-
-    function normalizePkgEntryUrl(base) {
-      const b = String(base || '').trim();
-      if (!b) return b;
-      return b.endsWith('/') ? b.slice(0, -1) : b;
-    }
-
-    function rewriteSvelteModuleSpecifiers(code, svelteBase) {
-      const base = normalizeUrlBase(svelteBase);
-      if (!base) return String(code || '');
-
-      const resolve = (p) => {
-        try { return new URL(p, base).href; } catch { return base + p; }
-      };
-
-      const isEsmSh = base.indexOf('esm.sh/') !== -1;
-      const entry = normalizePkgEntryUrl(base);
-
-      const map = {
-        // Svelte 5 runtime imports:
-        'svelte': isEsmSh ? entry : resolve('src/runtime/index.js'),
-        'svelte/internal': isEsmSh ? resolve('internal') : resolve('src/runtime/internal/index.js'),
-        'svelte/internal/client': isEsmSh ? resolve('internal/client') : resolve('src/runtime/internal/client/index.js'),
-        'svelte/internal/server': isEsmSh ? resolve('internal/server') : resolve('src/runtime/internal/server/index.js'),
-        'svelte/internal/disclose-version': isEsmSh
-          ? resolve('internal/disclose-version')
-          : resolve('src/runtime/internal/disclose-version/index.js'),
-        'svelte/store': isEsmSh ? resolve('store') : resolve('src/runtime/store/index.js'),
-        'svelte/animate': isEsmSh ? resolve('animate') : resolve('src/runtime/animate/index.js'),
-        'svelte/easing': isEsmSh ? resolve('easing') : resolve('src/runtime/easing/index.js'),
-        'svelte/motion': isEsmSh ? resolve('motion') : resolve('src/runtime/motion/index.js'),
-        'svelte/transition': isEsmSh ? resolve('transition') : resolve('src/runtime/transition/index.js'),
-      };
-
-      let out = String(code || '');
-      for (const k in map) {
-        const v = map[k];
-        out = out.split("'" + k + "'").join("'" + v + "'");
-        out = out.split('"' + k + '"').join('"' + v + '"');
-      }
-
-      // Catch-all for any remaining Svelte subpath imports like:
-      //   "svelte/internal/flags/legacy"
-      //   "svelte/internal/client"
-      // We only support esm.sh, so rewrite bare "svelte/<...>" to absolute URLs.
-      if (isEsmSh && entry) {
-        out = out.split("'svelte/").join("'" + entry + '/');
-        out = out.split('"svelte/').join('"' + entry + '/');
-      }
-      return out;
-    }
-
-    async function loadSvelteCompilerModule() {
-      if (__md2xSvelteCompilerPromise) return __md2xSvelteCompilerPromise;
-      const url = getCdnValue('svelteCompiler');
-      __md2xSvelteCompilerPromise = import(url);
-      return __md2xSvelteCompilerPromise;
-    }
-
-    function getLangFromCodeClass(codeEl) {
-      const cls = (codeEl && codeEl.className) ? String(codeEl.className) : '';
-      const m = cls.match(/\\blanguage-([a-z0-9-]+)\\b/i);
-      return m ? m[1] : '';
-    }
-
-    function normalizeLang(lang) {
-      const l = String(lang || '').toLowerCase();
-      if (l === 'graphviz' || l === 'gv') return 'dot';
-      if (l === 'vegalite') return 'vega-lite';
-      return l;
-    }
-
-    function resolveHref(url, base) {
-      const u = String(url || '').trim();
-      if (!u) return '';
-      try {
-        return new URL(u, base || undefined).href;
-      } catch {
-        return u;
-      }
-    }
-
-    function normalizeMd2xTemplateRef(type, tpl) {
-      const t = String(type || '').trim().toLowerCase();
-      const v = String(tpl || '').trim();
-      if (!t || !v) return v;
-      // If user already provided a path/URL, keep it.
-      if (v.indexOf('/') !== -1 || v.indexOf('\\\\') !== -1 || v.indexOf('://') !== -1 || v.indexOf('file://') === 0) return v;
-      return t + '/' + v;
-    }
-
-    function detectMd2xNeedsVueFromDocument() {
-      const blocks = Array.from(document.querySelectorAll('pre > code'));
-      for (const codeEl of blocks) {
-        const langRaw = getLangFromCodeClass(codeEl);
-        const lang = normalizeLang(langRaw);
-        if (lang !== 'md2x') continue;
-        const text = (codeEl && codeEl.textContent) ? codeEl.textContent : '';
-        if (!text.trim()) continue;
-        // Fast path without parsing: the common config format includes type: 'vue'
-        if (/\\btype\\s*:\\s*['\\\"]vue['\\\"]/i.test(text)) return true;
-        try {
-          const cfg = parseMd2xConfig(text);
-          if (cfg && cfg.type === 'vue') return true;
-        } catch {}
-      }
-      return false;
-    }
-
-    function guessVegaLiteSchemaMajorFromSpec(spec) {
-      if (!spec || typeof spec !== 'object') return null;
-      const schema = spec.$schema;
-      if (typeof schema !== 'string') return null;
-      const m = schema.match(/\\/vega-lite\\/v(\\d+)(?:\\.|\\.json|$)/i) || schema.match(/\\/v(\\d+)\\.json$/i);
-      if (!m) return null;
-      const major = parseInt(m[1], 10);
-      return Number.isFinite(major) ? major : null;
-    }
-
-    function guessVegaLiteSchemaMajorFromText(text) {
-      const t = String(text || '');
-      const m = t.match(/\\/vega-lite\\/v(\\d+)(?:\\.|\\.json|$)/i) || t.match(/\\/v(\\d+)\\.json$/i);
-      if (!m) return null;
-      const major = parseInt(m[1], 10);
-      return Number.isFinite(major) ? major : null;
-    }
-
-    function detectVegaLiteMajorFromDocument() {
-      const blocks = Array.from(document.querySelectorAll('pre > code'));
-      let detected = null;
-      for (const codeEl of blocks) {
-        const langRaw = getLangFromCodeClass(codeEl);
-        const lang = normalizeLang(langRaw);
-        if (lang !== 'vega-lite') continue;
-
-        const text = (codeEl && codeEl.textContent) ? codeEl.textContent : '';
-        if (!text.trim()) continue;
-
-        const majorFromText = guessVegaLiteSchemaMajorFromText(text);
-        if (majorFromText && (majorFromText === 5 || majorFromText === 6)) {
-          detected = majorFromText;
-          if (majorFromText === 6) return 6;
-          continue;
-        }
-
-        try {
-          const spec = JSON.parse(text);
-          const major = guessVegaLiteSchemaMajorFromSpec(spec);
-          if (major && (major === 5 || major === 6)) {
-            detected = major;
-            if (major === 6) return 6;
-          }
-        } catch {}
-      }
-      return detected || 6;
-    }
-
-    function detectLiveKindsFromDocument() {
-      const blocks = Array.from(document.querySelectorAll('pre > code'));
-      const out = {
-        mermaid: false,
-        dot: false,
-        vegaLite: false,
-        infographic: false,
-        md2xVue: false,
-        md2xHtml: false,
-        md2xSvelte: false,
-      };
-
-      for (const codeEl of blocks) {
-        const langRaw = getLangFromCodeClass(codeEl);
-        if (!langRaw) continue;
-        const lang = normalizeLang(langRaw);
-
-        if (lang === 'mermaid') out.mermaid = true;
-        else if (lang === 'dot') out.dot = true;
-        else if (lang === 'vega-lite') out.vegaLite = true;
-        else if (lang === 'infographic') out.infographic = true;
-        else if (lang === 'md2x') {
-          const text = (codeEl && codeEl.textContent) ? codeEl.textContent : '';
-          const cfg = parseMd2xConfig(text);
-          if (cfg && cfg.type === 'vue') out.md2xVue = true;
-          if (cfg && cfg.type === 'html') out.md2xHtml = true;
-          if (cfg && cfg.type === 'svelte') out.md2xSvelte = true;
-        }
-      }
-
-      return out;
-    }
-
-    async function ensureCdnLibsLoaded() {
-      const kinds = detectLiveKindsFromDocument();
-
-      // Only include Vega URLs if we actually need Vega-Lite (reduces failure surface when offline).
-      const major = kinds.vegaLite ? detectVegaLiteMajorFromDocument() : 6;
-      const vegaDefaults = cdnVegaDefaultsByMajor[String(major)] || cdnVegaDefaultsByMajor['6'];
-      const cdn = Object.assign({}, cdnBaseDefaults, vegaDefaults, cdnOverrides || {});
-
-      // Load only what we need; never throw here (so other kinds can still render).
-      if (kinds.mermaid) {
-        try { await loadScript(cdn.mermaid); } catch {}
-      }
-      if (kinds.dot) {
-        try {
-          if (cdn.vizGlobal) {
-            await loadScript(cdn.vizGlobal);
-          } else {
-            await loadScript(cdn.viz);
-            await loadScript(cdn.vizRender);
-          }
-        } catch {}
-      }
-      if (kinds.vegaLite) {
-        try {
-          await loadScript(cdn.vega);
-          await loadScript(cdn.vegaLite);
-          await loadScript(cdn.vegaEmbed);
-        } catch {}
-      }
-      if (kinds.infographic) {
-        try { await loadScript(cdn.infographic); } catch {}
-      }
-
-      // md2x templates:
-      if (kinds.md2xVue) {
-        try {
-          await loadScript(cdn.vue);
-          await loadScript(cdn.vueSfcLoader);
-        } catch {}
-      }
-      if (kinds.md2xSvelte) {
-        try {
-          // Warm up the compiler module so rendering multiple blocks is faster.
-          await import(cdn.svelteCompiler);
-        } catch {}
-      }
-    }
-
-    function replacePreWithContainer(preEl, kind) {
-      const wrapper = document.createElement('div');
-      wrapper.className = 'md2x-diagram';
-      wrapper.setAttribute('data-md2x-diagram-kind', kind);
-      wrapper.style.maxWidth = '100%';
-      const inner = document.createElement('div');
-      inner.className = 'md2x-diagram-inner';
-      inner.style.display = 'inline-block';
-      inner.style.maxWidth = '100%';
-      const mount = document.createElement('div');
-      mount.className = 'md2x-diagram-mount';
-      mount.style.maxWidth = '100%';
-      inner.appendChild(mount);
-      wrapper.appendChild(inner);
-      preEl.replaceWith(wrapper);
-      return mount;
-    }
-
-    function getText(codeEl) {
-      return (codeEl && codeEl.textContent) ? codeEl.textContent : '';
-    }
-
-    async function renderMermaid(code, mount, id) {
-      const mermaid = window.mermaid;
-      if (!mermaid) return;
-      mermaid.initialize({
-        startOnLoad: false,
-        theme: 'default',
-        securityLevel: 'loose',
-        fontFamily: themeConfig && themeConfig.fontFamily ? themeConfig.fontFamily : undefined,
-      });
-      const out = await mermaid.render('md2x-mermaid-' + id, code);
-      mount.innerHTML = out && out.svg ? out.svg : '';
-    }
-
-    async function renderDot(code, mount) {
-      const VizGlobal = window.Viz;
-      if (VizGlobal && typeof VizGlobal.instance === 'function') {
-        const viz = await VizGlobal.instance();
-        const svgEl = viz.renderSVGElement(code, { graphAttributes: { bgcolor: 'transparent' } });
-        mount.appendChild(svgEl);
+        try { window.__md2xLiveDone = true; } catch {}
         return;
       }
-      if (typeof window.Viz === 'function') {
-        const viz = new window.Viz();
-        const svgEl = await viz.renderSVGElement(code);
-        mount.appendChild(svgEl);
-      }
-    }
-
-    function applyDefaultVegaLiteSort(spec) {
-      const applyOne = (s) => {
-        if (!s || typeof s !== 'object') return;
-        const enc = s.encoding;
-        const x = enc && enc.x;
-        if (x && typeof x === 'object' && x.type === 'ordinal' && !('sort' in x)) {
-          x.sort = null;
-        }
-      };
-
-      const walk = (s) => {
-        if (!s || typeof s !== 'object') return;
-        applyOne(s);
-        const arrays = ['layer', 'hconcat', 'vconcat', 'concat'];
-        for (const key of arrays) {
-          const childArr = s[key];
-          if (Array.isArray(childArr)) {
-            for (const child of childArr) walk(child);
-          }
-        }
-        if (s.spec) walk(s.spec);
-      };
-      walk(spec);
-    }
-
-    async function renderVegaLite(code, mount) {
-      const vegaEmbed = window.vegaEmbed;
-      if (typeof vegaEmbed !== 'function') return;
-      let spec;
-      try {
-        spec = JSON.parse(code);
-      } catch {
-        mount.textContent = 'Invalid Vega-Lite JSON.';
-        return;
-      }
-      if (!spec) return;
-
-      try {
-        applyDefaultVegaLiteSort(spec);
-      } catch {}
-
-      await vegaEmbed(mount, spec, {
-        actions: false,
-        renderer: 'svg',
-        defaultStyle: true,
-        logLevel: (window.vega && window.vega.Warn) ? window.vega.Warn : undefined,
-      }).catch(() => {});
-    }
-
-    async function renderInfographic(code, mount) {
-      // @antv/infographic UMD exposes window.AntVInfographic
-      const lib = window.AntVInfographic;
-      if (!lib || !lib.Infographic) return;
-
-      try {
-        if (typeof lib.setDefaultFont === 'function') {
-          const ff = themeConfig && themeConfig.fontFamily ? themeConfig.fontFamily : undefined;
-          if (ff) lib.setDefaultFont(ff);
-        }
-      } catch {}
-
-      const opts = {
-        container: mount,
-        width: 900,
-        height: 600,
-        padding: 24,
-      };
-      if (themeConfig && themeConfig.diagramStyle === 'handDrawn') {
-        opts.themeConfig = { stylize: { type: 'rough', roughness: 0.5, bowing: 0.5 } };
-      }
-
-      const ig = new lib.Infographic(opts);
-      await new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error('Infographic render timeout after 10s')), 10000);
-        ig.on && ig.on('rendered', () => { clearTimeout(timeout); resolve(); });
-        ig.on && ig.on('error', (err) => { clearTimeout(timeout); reject(err); });
-        try {
-          ig.render(code);
-        } catch (e) {
-          clearTimeout(timeout);
-          reject(e);
-        }
-      }).catch(() => {
-        // keep container content on errors
-      });
-    }
-
-    function parseMd2xConfig(text) {
-      const raw = String(text || '').trim();
-      if (!raw) return null;
-
-      // The md2x block format is treated as a JS object literal (often without outer braces).
-      // Example:
-      //   type: 'vue',
-      //   template: 'vue/my-component.vue',
-      //   data: [...]
-      let expr = raw.replace(/^export\\s+default\\s+/i, '').trim();
-      if (!expr) return null;
-      if (!/^\\s*\\{[\\s\\S]*\\}\\s*$/.test(expr)) {
-        expr = '{' + expr + '}';
-      }
-
-      let cfg;
-      try {
-        // eslint-disable-next-line no-new-func
-        cfg = Function('\"use strict\"; return (' + expr + ');')();
-      } catch {
-        return null;
-      }
-
-      if (!cfg || typeof cfg !== 'object') return null;
-      const type = (cfg.type != null) ? String(cfg.type).toLowerCase() : '';
-      const template = (cfg.template != null) ? String(cfg.template) : '';
-      const data = cfg.data;
-      const allowTemplateAssets =
-        (typeof cfg.allowTemplateAssets === 'boolean')
-          ? cfg.allowTemplateAssets
-          : ((typeof cfg.allowCdn === 'boolean') ? cfg.allowCdn : false);
-      if (type !== 'vue' && type !== 'html' && type !== 'svelte') return null;
-      if (!template) return null;
-      return { type, template, data, allowTemplateAssets };
-    }
-
-    async function renderMd2xHtml(cfg, mount) {
-      try {
-        const templateRef = normalizeMd2xTemplateRef(cfg.type, cfg.template);
-        const tplHref = resolveHref(templateRef, baseHref || undefined);
-        const tpl = md2xTemplateFiles[tplHref] || md2xTemplateFiles[templateRef] || md2xTemplateFiles[cfg.template];
-        if (typeof tpl !== 'string' || !tpl) {
-          mount.textContent = 'Missing md2x html template: ' + templateRef;
-          return;
-        }
-
-        const extracted = extractTemplateConfigFromHead(tpl);
-        if (cfg.allowTemplateAssets) {
-          if (extracted.error) {
-            mount.textContent = 'Invalid TemplateConfig JSON: ' + extracted.error;
-            return;
-          }
-          try {
-            await loadTemplateAssets(extracted.templateConfig);
-          } catch (e) {
-            mount.textContent = 'Failed to load TemplateConfig assets.';
-            return;
-          }
-        }
-
-        // Same data-injection approach as md2x Vue templates: replace the templateData placeholder.
-        const json = (() => {
-          try {
-            const j = JSON.stringify(cfg.data ?? null);
-            // Avoid accidentally terminating an inline <script> tag if user data contains "</...".
-            // IMPORTANT: avoid including the literal closing script tag sequence in this bootstrap source code.
-            return j.split('</').join('<\\/');
-          } catch {
-            return 'null';
-          }
-        })();
-        mount.innerHTML = extracted.source.split('templateData').join('(' + json + ')');
-
-        // Browsers treat <script> tags inserted via innerHTML as inert (they won't execute).
-        // Re-create them in-place to allow "script + markup in one HTML file" templates.
-        const scripts = Array.from(mount.querySelectorAll('script'));
-        for (const old of scripts) {
-          const parent = old.parentNode;
-          if (!parent) continue;
-
-          const s = document.createElement('script');
-          for (const attr of Array.from(old.attributes || [])) {
-            const name = String(attr && attr.name ? attr.name : '');
-            if (!name) continue;
-            // Keep execution order predictable (parser-blocking semantics).
-            if (name === 'async' || name === 'defer') continue;
-            try {
-              s.setAttribute(name, attr.value);
-            } catch {}
-          }
-
-          const src = old.getAttribute('src');
-          let wait = null;
-          if (src) {
-            // Force sequential loading/execution for deterministic template behavior.
-            try { s.async = false; } catch {}
-            wait = new Promise((resolve) => {
-              s.onload = () => resolve(null);
-              s.onerror = () => resolve(null);
-            });
-            // Resolve relative src against baseHref (file://.../).
-            const href = resolveHref(src, baseHref || undefined);
-            s.setAttribute('src', href);
-          } else {
-            s.textContent = old.textContent || '';
-          }
-
-          parent.replaceChild(s, old);
-          if (wait) {
-            try { await wait; } catch {}
-          }
-        }
-      } catch (e) {
-        mount.textContent = 'Failed to render md2x html template.';
-      }
-    }
-
-    async function renderMd2xVue(cfg, mount) {
-      const Vue = window.Vue;
-      const loader = window['vue3-sfc-loader'];
-      if (!Vue || !loader || typeof loader.loadModule !== 'function') {
-        mount.textContent = 'Vue runtime not available (missing vue/vue3-sfc-loader).';
-        return;
-      }
-
-      const { loadModule } = loader;
-      const fileCache = Object.create(null);
-
-      const templateRef = normalizeMd2xTemplateRef(cfg.type, cfg.template);
-      const rootHref = resolveHref(templateRef, baseHref || undefined);
-      const rootSource = md2xTemplateFiles[rootHref] || md2xTemplateFiles[templateRef] || md2xTemplateFiles[cfg.template];
-      if (typeof rootSource !== 'string' || !rootSource) {
-        mount.textContent = 'Missing md2x vue template: ' + templateRef;
-        return;
-      }
-
-      const extracted = extractTemplateConfigFromHead(rootSource);
-      if (cfg.allowTemplateAssets) {
-        if (extracted.error) {
-          mount.textContent = 'Invalid TemplateConfig JSON: ' + extracted.error;
-          return;
-        }
-        try {
-          // Load after Vue runtime is available (common for Vue plugin UMDs).
-          await loadTemplateAssets(extracted.templateConfig);
-        } catch (e) {
-          mount.textContent = 'Failed to load TemplateConfig assets.';
-          return;
-        }
-      }
-
-      // Inject md2x data into the template by replacing the templateData placeholder.
-      // This avoids fetch() and also avoids having to require every user template to define props.
-      const json = (() => {
-        try {
-          const j = JSON.stringify(cfg.data ?? null);
-          // Prevent any closing tag sequence (e.g. "</div>") inside injected string values from terminating the HTML
-          // bootstrap script tag while the page is parsing.
-          // IMPORTANT: avoid including the literal closing script tag sequence in this bootstrap source code.
-          return j.split('</').join('<\\/');
-        } catch {
-          return 'null';
-        }
-      })();
-      // NOTE: avoid \\b in this template-literal-generated script (it would become a backspace character).
-      const rootPatchedSource = extracted.source.split('templateData').join('(' + json + ')');
-
-      const options = {
-        moduleCache: { vue: Vue },
-        async getFile(url) {
-          const u = String(url || '').trim();
-          if (!u) throw new Error('Empty md2x template url');
-          if (fileCache[u]) return fileCache[u];
-
-          const href = resolveHref(u, baseHref || undefined);
-          if (href === rootHref || u === rootHref) {
-            fileCache[u] = rootPatchedSource;
-            return rootPatchedSource;
-          }
-          const text = md2xTemplateFiles[href] || md2xTemplateFiles[u];
-          if (typeof text !== 'string') {
-            throw new Error('Missing md2x template content for: ' + u);
-          }
-          fileCache[u] = text;
-          return text;
-        },
-        resolve({ refPath, relPath }) {
-          // Ensure nested <script src>, <style src> etc become absolute keys for md2xTemplateFiles lookup.
-          try {
-            const refHref = resolveHref(refPath, baseHref || undefined);
-            return new URL(relPath, refHref).href;
-          } catch {
-            return relPath;
-          }
-        },
-        addStyle(textContent) {
-          const style = document.createElement('style');
-          style.textContent = textContent;
-          const ref = document.head.getElementsByTagName('style')[0] || null;
-          document.head.insertBefore(style, ref);
-        },
-      };
-
-      let Comp;
-      try {
-        Comp = await loadModule(rootHref, options);
-      } catch (e) {
-        mount.textContent = 'Failed to load Vue SFC: ' + cfg.template;
-        return;
-      }
-
-      // Render the loaded SFC. Data injection is handled by templateData placeholder replacement
-      // (so we avoid passing extraneous attrs that can trigger Vue warnings for fragment-root SFCs).
-      const app = Vue.createApp({
-        render() {
-          return Vue.h(Comp);
-        },
-      });
-      app.mount(mount);
-      try {
-        if (typeof Vue.nextTick === 'function') {
-          await Vue.nextTick();
-        }
-      } catch {}
-    }
-
-    async function renderMd2xSvelte(cfg, mount) {
-      const templateRef = normalizeMd2xTemplateRef(cfg.type, cfg.template);
-      const rootHref = resolveHref(templateRef, baseHref || undefined);
-      const rootSource = md2xTemplateFiles[rootHref] || md2xTemplateFiles[templateRef] || md2xTemplateFiles[cfg.template];
-      if (typeof rootSource !== 'string' || !rootSource) {
-        mount.textContent = 'Missing md2x svelte template: ' + templateRef;
-        return;
-      }
-
-      const extracted = extractTemplateConfigFromHead(rootSource);
-      if (cfg.allowTemplateAssets) {
-        if (extracted.error) {
-          mount.textContent = 'Invalid TemplateConfig JSON: ' + extracted.error;
-          return;
-        }
-        try {
-          await loadTemplateAssets(extracted.templateConfig);
-        } catch (e) {
-          mount.textContent = 'Failed to load TemplateConfig assets.';
-          return;
-        }
-      }
-
-      const json = (() => {
-        try {
-          const j = JSON.stringify(cfg.data ?? null);
-          // IMPORTANT: avoid including the literal closing script tag sequence in this bootstrap source code.
-          return j.split('</').join('<\\/');
-        } catch {
-          return 'null';
-        }
-      })();
-      const patchedSource = extracted.source.split('templateData').join('(' + json + ')');
-
-      let compilerMod;
-      try {
-        compilerMod = await loadSvelteCompilerModule();
-      } catch (e) {
-        mount.textContent = 'Svelte compiler unavailable: ' + ((e && e.message) ? e.message : String(e));
-        return;
-      }
-
-      const compile =
-        (compilerMod && compilerMod.compile) ||
-        (compilerMod && compilerMod.default && compilerMod.default.compile);
-      if (typeof compile !== 'function') {
-        mount.textContent = 'Svelte compiler not available (missing compile()).';
-        return;
-      }
-
-      let compiled;
-      try {
-        // Svelte 5 uses generate: "client" (Svelte 4 used generate: "dom"). We only support Svelte 5 here,
-        // but keep a fallback for older compiler builds.
-        try {
-          compiled = compile(patchedSource, { filename: rootHref || templateRef || 'md2x.svelte', generate: 'client' });
-        } catch {
-          compiled = compile(patchedSource, { filename: rootHref || templateRef || 'md2x.svelte', generate: 'dom' });
-        }
-      } catch (e) {
-        mount.textContent = 'Failed to compile Svelte template: ' + cfg.template;
-        return;
-      }
-
-      const jsCode = compiled && compiled.js && compiled.js.code ? String(compiled.js.code) : '';
-      const cssCode = compiled && compiled.css && compiled.css.code ? String(compiled.css.code) : '';
-      if (!jsCode.trim()) {
-        mount.textContent = 'Svelte compile returned no JS output.';
-        return;
-      }
-
-      const svelteBase = getCdnValue('svelteBase');
-      const moduleCode = rewriteSvelteModuleSpecifiers(jsCode, svelteBase);
-
-      let blobUrl = '';
-      try {
-        blobUrl = URL.createObjectURL(new Blob([moduleCode], { type: 'text/javascript' }));
-      } catch (e) {
-        mount.textContent = 'Unable to create Blob URL for Svelte module.';
-        return;
-      }
-
-      try {
-        let mod;
-        try {
-          mod = await import(blobUrl);
-        } catch (e) {
-          mount.textContent = 'Failed to load compiled Svelte module: ' + ((e && e.message) ? e.message : String(e));
-          return;
-        }
-
-        const Comp = mod && mod.default;
-        if (typeof Comp !== 'function') {
-          mount.textContent = 'Compiled Svelte module has no default component export.';
-          return;
-        }
-
-        const svelteEntry = normalizePkgEntryUrl(svelteBase);
-        let runtime;
-        try {
-          runtime = await import(svelteEntry);
-        } catch (e) {
-          mount.textContent = 'Failed to load Svelte runtime: ' + ((e && e.message) ? e.message : String(e));
-          return;
-        }
-
-        const mountFn = runtime && runtime.mount;
-        if (typeof mountFn !== 'function') {
-          mount.textContent = 'Svelte runtime mount() not available.';
-          return;
-        }
-
-        if (cssCode && cssCode.trim()) {
-          const style = document.createElement('style');
-          style.textContent = cssCode;
-          mount.appendChild(style);
-        }
-
-        try {
-          // NOTE: keep mounted for printing/PDF.
-          mountFn(Comp, { target: mount });
-        } catch (e) {
-          mount.textContent = 'Failed to mount Svelte component: ' + ((e && e.message) ? e.message : String(e));
-          return;
-        }
-      } finally {
-        try { URL.revokeObjectURL(blobUrl); } catch {}
-      }
-    }
-
-    async function main() {
-      try {
-        if (baseHref) {
-          let base = document.querySelector('base');
-          if (!base) {
-            base = document.createElement('base');
-            document.head.appendChild(base);
-          }
-          base.href = baseHref;
-        }
-      } catch {}
-
-      await ensureCdnLibsLoaded();
-
-      const blocks = Array.from(document.querySelectorAll('pre > code'));
-      let idx = 0;
-      for (const codeEl of blocks) {
-        const pre = codeEl && codeEl.parentElement;
-        if (!pre) continue;
-        const langRaw = getLangFromCodeClass(codeEl);
-        if (!langRaw) continue;
-        const lang = normalizeLang(langRaw);
-        const code = getText(codeEl);
-        if (!code.trim()) continue;
-
-        try {
-          if (lang === 'mermaid') {
-            const mount = replacePreWithContainer(pre, 'mermaid');
-            await renderMermaid(code, mount, idx++);
-          } else if (lang === 'dot') {
-            const mount = replacePreWithContainer(pre, 'dot');
-            await renderDot(code, mount);
-          } else if (lang === 'vega-lite') {
-            const mount = replacePreWithContainer(pre, 'vega-lite');
-            await renderVegaLite(code, mount);
-          } else if (lang === 'infographic') {
-            const mount = replacePreWithContainer(pre, 'infographic');
-            await renderInfographic(code, mount);
-          } else if (lang === 'md2x') {
-            const cfg = parseMd2xConfig(code);
-            const kind = cfg && cfg.type ? ('md2x-' + cfg.type) : 'md2x';
-            const mount = replacePreWithContainer(pre, kind);
-            if (!cfg) {
-              mount.textContent = 'Invalid md2x block.';
-              continue;
-            }
-            if (cfg.type === 'vue') {
-              await renderMd2xVue(cfg, mount);
-            } else if (cfg.type === 'html') {
-              await renderMd2xHtml(cfg, mount);
-            } else if (cfg.type === 'svelte') {
-              await renderMd2xSvelte(cfg, mount);
-            }
-          }
-        } catch {}
-      }
-
-      try { window.__md2xLiveDone = true; } catch {}
+      setTimeout(runWhenReady, 25);
     }
 
     if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', () => { main(); }, { once: true });
+      document.addEventListener('DOMContentLoaded', runWhenReady, { once: true });
     } else {
-      main();
+      runWhenReady();
+    }
+  })();
+  </script>`;
+    }
+
+    const baseUrlRaw = maybeUrl || getDefaultLiveRuntimeCdnBaseUrl();
+    const baseUrl = baseUrlRaw.endsWith('/') ? baseUrlRaw : (baseUrlRaw + '/');
+
+    const chunkByType: Record<string, string> = {
+      mermaid: 'live-runtime-mermaid.js',
+      dot: 'live-runtime-dot.js',
+      vega: 'live-runtime-vega.js',
+      'vega-lite': 'live-runtime-vega.js',
+      infographic: 'live-runtime-infographic.js',
+      canvas: 'live-runtime-canvas.js',
+      html: 'live-runtime-html.js',
+      svg: 'live-runtime-svg.js',
+      md2x: 'live-runtime-md2x.js',
+    };
+
+    const types = Array.isArray(requiredRenderTypes) ? requiredRenderTypes : [];
+    const chunks = new Set<string>();
+    for (const t of types) {
+      const k = String(t || '').trim().toLowerCase();
+      const name = chunkByType[k];
+      if (name) chunks.add(name);
+    }
+
+    const needMermaid = chunks.has('live-runtime-mermaid.js');
+
+    const coreUrl = new URL('live-runtime-core.js', baseUrl).href;
+    const chunkTags = Array.from(chunks)
+      .sort()
+      .map((name) => {
+        const u = new URL(name, baseUrl).href;
+        return `  <script src="${escapeHtmlText(u)}"></script>`;
+      })
+      .join('\n');
+
+    return `
+  <!-- md2x live diagram renderer (worker mountToDom) (runtime: cdn) -->
+  <script>try { window.__md2xLiveDone = false; } catch {}</script>
+${needMermaid ? `  <script src="${escapeHtmlText(mermaidSrc)}"></script>\n` : ''}  <script src="${escapeHtmlText(coreUrl)}"></script>
+${chunkTags}
+  <script>
+  (function () {
+    const opts = ${optsJson};
+    function run() {
+      const fn = window.__md2xRenderDocument;
+      if (typeof fn === 'function') {
+        fn(opts).catch(() => { try { window.__md2xLiveDone = true; } catch {} });
+      } else {
+        try { window.__md2xLiveDone = true; } catch {}
+      }
+    }
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', run, { once: true });
+    } else {
+      run();
+    }
+  })();
+  </script>`;
+  }
+
+  const workerSource = loadLiveWorkerJs();
+
+  return `
+  <!-- md2x live diagram renderer (worker mountToDom) (runtime: inline) -->
+  <script>try { window.__md2xLiveDone = false; } catch {}</script>
+  <script src="${escapeHtmlText(mermaidSrc)}"></script>
+  <script>
+  (function () {
+    const workerSource = ${jsonForInlineScript(workerSource)};
+    const s = document.createElement('script');
+    s.textContent = workerSource;
+    document.head.appendChild(s);
+  })();
+  </script>
+  <script>
+  (function () {
+    const opts = ${optsJson};
+    const start = Date.now();
+
+    function runWhenReady() {
+      const fn = window.__md2xRenderDocument;
+      if (typeof fn === 'function') {
+        fn(opts).catch(() => { try { window.__md2xLiveDone = true; } catch {} });
+        return;
+      }
+      if (Date.now() - start > 15000) {
+        try { window.__md2xLiveDone = true; } catch {}
+        return;
+      }
+      setTimeout(runWhenReady, 25);
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', runWhenReady, { once: true });
+    } else {
+      runWhenReady();
     }
   })();
   </script>`;
@@ -2106,7 +1344,7 @@ export class NodePdfExporter {
       if (diagramMode === 'live') {
         const baseHref = pathToFileURL(basePath + path.sep).href;
         const md2xTemplateFiles = collectMd2xTemplateFiles(html, basePath, options.templatesDir);
-        html = html + '\n' + buildLiveDiagramBootstrap(themeConfig ?? null, baseHref, options.cdn, md2xTemplateFiles);
+        html = html + '\n' + buildLiveDiagramBootstrap(themeConfig ?? null, baseHref, options.cdn, md2xTemplateFiles, { mode: 'inline' });
       }
 
       // Load CSS
@@ -2178,7 +1416,7 @@ export class NodeImageExporter {
       if (diagramMode === 'live') {
         const baseHref = pathToFileURL(basePath + path.sep).href;
         const md2xTemplateFiles = collectMd2xTemplateFiles(html, basePath, options.templatesDir);
-        html = html + '\n' + buildLiveDiagramBootstrap(themeConfig ?? null, baseHref, options.cdn, md2xTemplateFiles);
+        html = html + '\n' + buildLiveDiagramBootstrap(themeConfig ?? null, baseHref, options.cdn, md2xTemplateFiles, { mode: 'inline' });
       }
 
       let katexCss = '';
@@ -2242,7 +1480,7 @@ export class NodeImageExporter {
       if (diagramMode === 'live') {
         const baseHref = pathToFileURL(basePath + path.sep).href;
         const md2xTemplateFiles = collectMd2xTemplateFiles(html, basePath, options.templatesDir);
-        html = html + '\n' + buildLiveDiagramBootstrap(themeConfig ?? null, baseHref, options.cdn, md2xTemplateFiles);
+        html = html + '\n' + buildLiveDiagramBootstrap(themeConfig ?? null, baseHref, options.cdn, md2xTemplateFiles, { mode: 'inline' });
       }
 
       let katexCss = '';
@@ -2345,7 +1583,9 @@ export class NodeHtmlExporter {
           themeConfig ?? null,
           baseHref,
           options.cdn,
-          collectMd2xTemplateFiles(fragment, basePath, options.templatesDir)
+          collectMd2xTemplateFiles(fragment, basePath, options.templatesDir),
+          { mode: options.liveRuntime ?? 'cdn', url: options.liveRuntimeUrl },
+          detectLiveRenderTypesFromHtml(fragment)
         )
         : '';
 

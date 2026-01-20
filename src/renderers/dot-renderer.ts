@@ -9,8 +9,8 @@ import { applyRoughEffect, type RoughSvgOptions } from './libs/rough-svg';
 import type { RendererThemeConfig, RenderResult } from '../types/index';
 
 export class DotRenderer extends BaseRenderer {
-  private viz: Awaited<ReturnType<typeof instance>> | null = null;
-  private roughOptions: RoughSvgOptions = {
+  protected viz: Awaited<ReturnType<typeof instance>> | null = null;
+  protected roughOptions: RoughSvgOptions = {
     roughness: 0.5,
     bowing: 0.5,
   };

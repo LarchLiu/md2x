@@ -48,6 +48,14 @@ interface NodeOptions {
   /** Extra directories to search for md2x templates referenced by ` ```md2x ` blocks (repeatable). */
   templatesDir: string[];
   /**
+   * HTML live runtime injection strategy.
+   * - "inline": embed the runtime JS into the HTML (largest output, most self-contained)
+   * - "cdn": reference the runtime JS from a CDN (smallest HTML output)
+   */
+  liveRuntime?: 'inline' | 'cdn';
+  /** Custom runtime URL when `--live-runtime cdn` */
+  liveRuntimeUrl?: string;
+  /**
    * null means "use format default":
    * - pdf/docx: true
    * - html: false
@@ -141,6 +149,8 @@ Options:
   -h, --help        Show this help message
   -v, --version     Show version number
   --diagram-mode    img | live | none (default: img for DOCX; live for HTML/Image)
+  --live-runtime    inline | cdn (HTML + diagramMode=live; default: cdn)
+  --live-runtime-url  Custom runtime URL when --live-runtime cdn
   --hr-page-break   Convert horizontal rules to page breaks: true | false (default: true for PDF/DOCX; false for HTML/Image)
   --templates-dir    Extra template dir for md2x blocks (repeatable; resolved against input dir when relative)
   --list-themes     List all available themes
@@ -200,6 +210,8 @@ function parseArgs(args: string[]): NodeOptions {
     listThemes: false,
     diagramMode: 'live',
     templatesDir: [],
+    liveRuntime: undefined,
+    liveRuntimeUrl: undefined,
     hrPageBreak: null,
     _explicit: new Set(),
   };
@@ -296,6 +308,34 @@ function parseArgs(args: string[]): NodeOptions {
         console.error('Error: --templates-dir requires a path');
         process.exit(1);
       }
+    } else if (arg === '--live-runtime') {
+      i++;
+      if (i < args.length) {
+        const v = String(args[i]).toLowerCase();
+        if (v !== 'inline' && v !== 'cdn') {
+          console.error(`Error: Invalid --live-runtime "${args[i]}". Must be "inline" or "cdn".`);
+          process.exit(1);
+        }
+        options.liveRuntime = v as NodeOptions['liveRuntime'];
+        options._explicit.add('liveRuntime');
+      } else {
+        console.error('Error: --live-runtime requires a value (inline | cdn)');
+        process.exit(1);
+      }
+    } else if (arg === '--live-runtime-url') {
+      i++;
+      if (i < args.length) {
+        const v = String(args[i]).trim();
+        if (!v) {
+          console.error('Error: --live-runtime-url requires a non-empty URL');
+          process.exit(1);
+        }
+        options.liveRuntimeUrl = v;
+        options._explicit.add('liveRuntimeUrl');
+      } else {
+        console.error('Error: --live-runtime-url requires a URL');
+        process.exit(1);
+      }
     } else if (arg.startsWith('-')) {
       console.error(`Error: Unknown option: ${arg}`);
       process.exit(1);
@@ -385,6 +425,12 @@ async function main(): Promise<void> {
   const templatesDir = options._explicit.has('templatesDir')
     ? options.templatesDir
     : (fmOptions.templatesDir ?? options.templatesDir);
+  const liveRuntime = options._explicit.has('liveRuntime')
+    ? options.liveRuntime
+    : (fmOptions.liveRuntime ?? options.liveRuntime);
+  const liveRuntimeUrl = options._explicit.has('liveRuntimeUrl')
+    ? options.liveRuntimeUrl
+    : (fmOptions.liveRuntimeUrl ?? options.liveRuntimeUrl);
   const hrAsPageBreak = options._explicit.has('hrPageBreak')
     ? options.hrPageBreak!
     : (fmOptions.hrAsPageBreak ?? (format === 'html' || format === 'png' || format === 'jpg' || format === 'jpeg' || format === 'webp' ? false : true));
@@ -446,6 +492,8 @@ async function main(): Promise<void> {
       pdf: fmOptions.pdf,
       standalone: fmOptions.standalone,
       baseTag: fmOptions.baseTag,
+      liveRuntime,
+      liveRuntimeUrl,
       cdn: fmOptions.cdn,
       templatesDir,
       image,

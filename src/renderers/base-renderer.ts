@@ -5,7 +5,7 @@
  * Renderer instances are shared, so container management must be stateless
  */
 
-import type { RendererThemeConfig, RenderResult } from '../types/index';
+import type { DomMountResult, RendererThemeConfig, RenderResult } from '../types/index';
 
 export class BaseRenderer {
   type: string;
@@ -68,6 +68,45 @@ export class BaseRenderer {
    */
   async render(input: string | object, themeConfig: RendererThemeConfig | null): Promise<RenderResult | null> {
     throw new Error('render() must be implemented by subclass');
+  }
+
+  /**
+   * Mount renderer output into an existing DOM element (live mode).
+   *
+   * Default implementation: calls `render()` and inserts an `<img>` using the returned base64 data.
+   * Renderers can override this to mount SVG/HTML directly for better fidelity or interactivity.
+   */
+  async mountToDom(
+    input: string | object,
+    themeConfig: RendererThemeConfig | null,
+    host: HTMLElement
+  ): Promise<DomMountResult> {
+    const result = await this.render(input, themeConfig);
+    if (!result || !result.base64) {
+      const el = document.createElement('div');
+      el.textContent = `Renderer returned empty result: ${this.type}`;
+      host.appendChild(el);
+      return {
+        root: el,
+        cleanup: () => {
+          try { el.remove(); } catch {}
+        },
+      };
+    }
+
+    const img = document.createElement('img');
+    img.style.maxWidth = '100%';
+    img.style.height = 'auto';
+    img.alt = `${this.type} diagram`;
+    img.src = `data:image/${result.format};base64,${result.base64}`;
+    host.appendChild(img);
+
+    return {
+      root: img,
+      cleanup: () => {
+        try { img.remove(); } catch {}
+      },
+    };
   }
 
   /**

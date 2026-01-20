@@ -31,6 +31,8 @@ export interface FrontMatterOptions {
   standalone?: boolean;
   diagramMode?: DiagramMode;
   baseTag?: boolean;
+  liveRuntime?: Md2HtmlOptions['liveRuntime'];
+  liveRuntimeUrl?: string;
   cdn?: Md2HtmlOptions['cdn'];
   /** Extra directories to search for md2x templates referenced by ` ```md2x ` blocks */
   templatesDir?: Md2xBaseOptions['templatesDir'];
@@ -161,6 +163,13 @@ export function frontMatterToOptions(data: FrontMatterData): FrontMatterOptions 
   if (typeof data.title === 'string') out.title = data.title;
   if (typeof data.standalone === 'boolean') out.standalone = data.standalone;
   if (typeof data.baseTag === 'boolean') out.baseTag = data.baseTag;
+  if (typeof (data as any).liveRuntime === 'string') {
+    const v = String((data as any).liveRuntime).toLowerCase();
+    if (v === 'inline' || v === 'cdn') out.liveRuntime = v;
+  }
+  if (typeof (data as any).liveRuntimeUrl === 'string') {
+    out.liveRuntimeUrl = String((data as any).liveRuntimeUrl);
+  }
 
   if (typeof data.diagramMode === 'string') {
     const dm = data.diagramMode.toLowerCase();
@@ -319,9 +328,9 @@ export async function convert(
   const format = options.format ?? fmOptions.format ?? 'pdf';
   const theme = options.theme ?? fmOptions.theme ?? 'default';
   // Defaults:
-  // - PDF: use "img" (offline-friendly; avoids runtime JS execution during printing)
+  // - DOCX: use "img" (offline-friendly; avoids runtime JS execution during printing)
   // - HTML/Image: use "live" unless overridden (requires CDN scripts in browser context)
-  const defaultDiagramMode: DiagramMode = format === 'pdf' ? 'img' : 'live';
+  const defaultDiagramMode: DiagramMode = format === 'docx' ? 'img' : 'live';
   const diagramMode = options.diagramMode ?? fmOptions.diagramMode ?? defaultDiagramMode;
   const hrAsPageBreak = options.hrAsPageBreak ?? fmOptions.hrAsPageBreak ?? (format === 'html' || isImageFormat(format) ? false : true);
   const basePath = options.basePath ?? process.cwd();
@@ -360,6 +369,8 @@ export async function convert(
       title: options.title ?? fmOptions.title ?? 'Document',
       standalone: options.standalone ?? fmOptions.standalone,
       baseTag: options.baseTag ?? fmOptions.baseTag,
+      liveRuntime: options.liveRuntime ?? fmOptions.liveRuntime,
+      liveRuntimeUrl: options.liveRuntimeUrl ?? fmOptions.liveRuntimeUrl,
       cdn: options.cdn ?? fmOptions.cdn,
       templatesDir: options.templatesDir ?? fmOptions.templatesDir,
     });

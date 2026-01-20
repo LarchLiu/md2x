@@ -169,6 +169,16 @@ async function build() {
     const rendererCtx = await esbuild.context({
       entryPoints: {
         'puppeteer-render-worker': path.join(__dirname, 'src/webview/puppeteer-render-worker.ts'),
+        // Chunked runtime for exported HTML (diagramMode: "live", liveRuntime: "cdn").
+        'live-runtime-core': path.join(__dirname, 'src/webview/live-runtime-core.ts'),
+        'live-runtime-mermaid': path.join(__dirname, 'src/webview/live-runtime-renderers/mermaid.ts'),
+        'live-runtime-dot': path.join(__dirname, 'src/webview/live-runtime-renderers/dot.ts'),
+        'live-runtime-vega': path.join(__dirname, 'src/webview/live-runtime-renderers/vega.ts'),
+        'live-runtime-infographic': path.join(__dirname, 'src/webview/live-runtime-renderers/infographic.ts'),
+        'live-runtime-canvas': path.join(__dirname, 'src/webview/live-runtime-renderers/canvas.ts'),
+        'live-runtime-html': path.join(__dirname, 'src/webview/live-runtime-renderers/html.ts'),
+        'live-runtime-svg': path.join(__dirname, 'src/webview/live-runtime-renderers/svg.ts'),
+        'live-runtime-md2x': path.join(__dirname, 'src/webview/live-runtime-renderers/md2x.ts'),
       },
       bundle: true,
       outdir: rendererOutDir,

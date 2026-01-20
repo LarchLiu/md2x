@@ -8,9 +8,9 @@
  * Each platform provides its own message adapter that calls these functions.
  */
 
-import { renderers } from './index';
 import type { BaseRenderer } from './base-renderer';
-import type { RendererThemeConfig, RenderResult } from '../types/index';
+import { getRegisteredRendererTypes, getRenderer, hasRenderer as hasRegisteredRenderer } from './renderer-registry';
+import type { DomMountResult, RendererThemeConfig, RenderResult } from '../types/index';
 
 // ============================================================================
 // Type Definitions
@@ -26,6 +26,13 @@ export interface RenderRequest {
 }
 
 /**
+ * DOM mount request options (live mode)
+ */
+export interface MountRequest extends RenderRequest {
+  host: HTMLElement;
+}
+
+/**
  * Init options
  */
 interface InitOptions {
@@ -36,10 +43,13 @@ interface InitOptions {
 // State and Maps
 // ============================================================================
 
-// Create renderer map for quick lookup
-const rendererMap = new Map<string, BaseRenderer>(
-  renderers.map(r => [r.type, r])
-);
+function getRendererOrThrow(renderType: string): BaseRenderer {
+  const renderer = getRenderer(renderType);
+  if (!renderer) {
+    throw new Error(`No renderer found for type: ${renderType}`);
+  }
+  return renderer;
+}
 
 // Store current theme configuration
 let currentThemeConfig: RendererThemeConfig | null = null;
@@ -75,11 +85,7 @@ export async function handleRender({ renderType, input, themeConfig }: RenderReq
     currentThemeConfig = themeConfig;
   }
 
-  // Find renderer
-  const renderer = rendererMap.get(renderType);
-  if (!renderer) {
-    throw new Error(`No renderer found for type: ${renderType}`);
-  }
+  const renderer = getRendererOrThrow(renderType);
 
   // Perform render with current theme config
   const result = await renderer.render(input, currentThemeConfig);
@@ -90,11 +96,27 @@ export async function handleRender({ renderType, input, themeConfig }: RenderReq
 }
 
 /**
+ * Handle a DOM mount request (live mode).
+ *
+ * Default behavior is renderer-specific; for renderers that don't override `mountToDom`,
+ * BaseRenderer falls back to rendering a PNG and inserting an <img>.
+ */
+export async function handleMountToDom({ renderType, input, themeConfig, host }: MountRequest): Promise<DomMountResult> {
+  if (themeConfig) {
+    currentThemeConfig = themeConfig;
+  }
+
+  const renderer = getRendererOrThrow(renderType);
+
+  return await renderer.mountToDom(input, currentThemeConfig, host);
+}
+
+/**
  * Get list of available renderer types
  * @returns Array of renderer type names
  */
 export function getAvailableRenderers(): string[] {
-  return Array.from(rendererMap.keys());
+  return getRegisteredRendererTypes();
 }
 
 /**
@@ -103,7 +125,7 @@ export function getAvailableRenderers(): string[] {
  * @returns True if renderer exists
  */
 export function hasRenderer(type: string): boolean {
-  return rendererMap.has(type);
+  return hasRegisteredRenderer(type);
 }
 
 /**
