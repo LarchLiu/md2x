@@ -168,7 +168,8 @@ async function build() {
     console.log('Building Puppeteer renderer...');
     const rendererCtx = await esbuild.context({
       entryPoints: {
-        'puppeteer-render-worker': path.join(__dirname, 'src/webview/puppeteer-render-worker.ts'),
+        // Puppeteer page runtime (small core that exposes __md2xRender/__md2xRenderToDom)
+        'puppeteer-runtime-core': path.join(__dirname, 'src/webview/puppeteer-runtime-core.ts'),
         // Chunked runtime for exported HTML (diagramMode: "live", liveRuntime: "cdn").
         'live-runtime-core': path.join(__dirname, 'src/webview/live-runtime-core.ts'),
         'live-runtime-mermaid': path.join(__dirname, 'src/webview/live-runtime-renderers/mermaid.ts'),
@@ -230,7 +231,15 @@ async function build() {
   <div id="render-container"></div>
   <canvas id="png-canvas"></canvas>
   <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
-  <script src="./puppeteer-render-worker.js"></script>
+  <script src="./live-runtime-mermaid.js"></script>
+  <script src="./live-runtime-dot.js"></script>
+  <script src="./live-runtime-vega.js"></script>
+  <script src="./live-runtime-infographic.js"></script>
+  <script src="./live-runtime-canvas.js"></script>
+  <script src="./live-runtime-html.js"></script>
+  <script src="./live-runtime-svg.js"></script>
+  <script src="./live-runtime-md2x.js"></script>
+  <script src="./puppeteer-runtime-core.js"></script>
 </body>
 </html>`;
       fs.writeFileSync(path.join(rendererOutDir, 'puppeteer-render.html'), rendererHtml);

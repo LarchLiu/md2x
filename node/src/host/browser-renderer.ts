@@ -424,7 +424,7 @@ export async function createBrowserRenderer(): Promise<BrowserRenderer | null> {
           'Renderer page did not become ready within 30s.\n' +
           'Common causes:\n' +
           '- `puppeteer-render.html` has a <base> that breaks relative script loading\n' +
-          '- missing/broken `node/dist/renderer/puppeteer-render-worker.js`\n' +
+          '- missing/broken `node/dist/renderer/puppeteer-runtime-core.js`\n' +
           '- browser console error during initialization\n';
         const tail = debugLogs.length ? `\nLast browser logs:\n${debugLogs.join('\n')}\n` : '';
         const message = error instanceof Error ? error.message : String(error);
