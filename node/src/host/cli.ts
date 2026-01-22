@@ -19,13 +19,13 @@ const __dirname = path.dirname(__filename);
 (globalThis as any).__md2x_module_dir__ = __dirname;
 
 import {
-  type OutputFormat,
-  type DiagramMode,
   parseFrontMatter,
   frontMatterToOptions,
   formatToExtension,
   convert,
 } from './index';
+import type { OutputFormat, DiagramMode } from './types';
+import { registry } from './themes-data';
 
 // Helper to get module directory
 function getModuleDir(): string {
@@ -53,8 +53,8 @@ interface NodeOptions {
    * - "cdn": reference the runtime JS from a CDN (smallest HTML output)
    */
   liveRuntime?: 'inline' | 'cdn';
-  /** Custom runtime URL when `--live-runtime cdn` */
-  liveRuntimeUrl?: string;
+  /** Custom runtime base URL when `--live-runtime cdn` */
+  liveRuntimeBaseUrl?: string;
   /**
    * null means "use format default":
    * - pdf/docx: true
@@ -77,51 +77,10 @@ function inferFormatFromOutputPath(outputPath: string): OutputFormat | null {
   return null;
 }
 
-function resolveThemePresetsDir(): string | null {
-  const moduleDir = getModuleDir();
-
-  const candidates = [
-    // Bundled output: node/dist/themes/presets
-    path.join(moduleDir, 'themes', 'presets'),
-    // Dev (running TS): repo/src/themes/presets
-    path.resolve(moduleDir, '../../src/themes/presets'),
-    // Fallback: cwd/src/themes/presets
-    path.resolve(process.cwd(), 'src/themes/presets'),
-  ];
-
-  for (const dir of candidates) {
-    try {
-      if (fs.existsSync(dir) && fs.statSync(dir).isDirectory()) {
-        return dir;
-      }
-    } catch {
-      // try next
-    }
-  }
-
-  return null;
-}
-
 function getAvailableThemes(): string[] {
-  const presetsDir = resolveThemePresetsDir();
-  if (!presetsDir) {
-    return ['default'];
-  }
-
-  try {
-    const ids = fs
-      .readdirSync(presetsDir, { withFileTypes: true })
-      .filter((d) => d.isFile() && d.name.endsWith('.json'))
-      .map((d) => d.name.replace(/\.json$/i, ''))
-      .filter((id) => id.length > 0)
-      .sort();
-
-    const unique = Array.from(new Set(ids));
-    const withoutDefault = unique.filter((id) => id !== 'default');
-    return ['default', ...withoutDefault];
-  } catch {
-    return ['default'];
-  }
+  const ids = registry.themes.map((t) => t.id).sort();
+  const withoutDefault = ids.filter((id) => id !== 'default');
+  return ['default', ...withoutDefault];
 }
 
 function formatThemeList(themes: string[]): string {
@@ -211,7 +170,7 @@ function parseArgs(args: string[]): NodeOptions {
     diagramMode: 'live',
     templatesDir: [],
     liveRuntime: undefined,
-    liveRuntimeUrl: undefined,
+    liveRuntimeBaseUrl: undefined,
     hrPageBreak: null,
     _explicit: new Set(),
   };
@@ -330,8 +289,8 @@ function parseArgs(args: string[]): NodeOptions {
           console.error('Error: --live-runtime-url requires a non-empty URL');
           process.exit(1);
         }
-        options.liveRuntimeUrl = v;
-        options._explicit.add('liveRuntimeUrl');
+        options.liveRuntimeBaseUrl = v;
+        options._explicit.add('liveRuntimeBaseUrl');
       } else {
         console.error('Error: --live-runtime-url requires a URL');
         process.exit(1);
@@ -428,9 +387,9 @@ async function main(): Promise<void> {
   const liveRuntime = options._explicit.has('liveRuntime')
     ? options.liveRuntime
     : (fmOptions.liveRuntime ?? options.liveRuntime);
-  const liveRuntimeUrl = options._explicit.has('liveRuntimeUrl')
-    ? options.liveRuntimeUrl
-    : (fmOptions.liveRuntimeUrl ?? options.liveRuntimeUrl);
+  const liveRuntimeBaseUrl = options._explicit.has('liveRuntimeBaseUrl')
+    ? options.liveRuntimeBaseUrl
+    : (fmOptions.liveRuntimeBaseUrl ?? options.liveRuntimeBaseUrl);
   const hrAsPageBreak = options._explicit.has('hrPageBreak')
     ? options.hrPageBreak!
     : (fmOptions.hrAsPageBreak ?? (format === 'html' || format === 'png' || format === 'jpg' || format === 'jpeg' || format === 'webp' ? false : true));
@@ -493,7 +452,7 @@ async function main(): Promise<void> {
       standalone: fmOptions.standalone,
       baseTag: fmOptions.baseTag,
       liveRuntime,
-      liveRuntimeUrl,
+      liveRuntimeBaseUrl,
       cdn: fmOptions.cdn,
       templatesDir,
       image,

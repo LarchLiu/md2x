@@ -104,9 +104,8 @@ diagramMode: none
       const html = fs.readFileSync(outputPath, 'utf8');
       assert.ok(html.includes('<!DOCTYPE html>'));
       assert.ok(html.includes('id="markdown-content"'));
-      assert.ok(html.includes('md2x live diagram renderer (worker mountToDom)'));
+      assert.ok(html.includes('md2x live diagram renderer (CDN)'));
       assert.ok(html.includes('__md2xRenderDocument'));
-      assert.ok(html.includes('(runtime: cdn)'));
       assert.ok(html.includes('/dist/renderer/live-runtime-core.js'));
       assert.ok(!html.includes('const workerSource ='));
       assert.ok(html.includes('cdn.jsdelivr.net/npm/mermaid'));

@@ -16,6 +16,14 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./core-worker": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/core-worker.js"
+    },
+    "./core-worker-browser": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/renderer/core-worker-browser.js"
     }
   },
   "scripts": {

@@ -11,7 +11,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
-import type { RendererThemeConfig } from '../../../src/types/index';
+import type { RendererThemeConfig, RenderResult, PdfOptions, ImageOptions, BrowserRenderer } from './types';
 
 // Helper to get module directory - uses global set by entry point, or falls back to import.meta.url
 function getModuleDir(): string {
@@ -23,175 +23,6 @@ function getModuleDir(): string {
 
 // Dynamic import for puppeteer (optional dependency)
 let puppeteer: typeof import('puppeteer') | null = null;
-
-export interface RenderResult {
-  base64: string;
-  width: number;
-  height: number;
-  format: string;
-}
-
-export interface PdfOptions {
-  format?: 'A4' | 'Letter' | 'Legal' | 'A3' | 'A5';
-  landscape?: boolean;
-  margin?: {
-    top?: string | number;
-    bottom?: string | number;
-    left?: string | number;
-    right?: string | number;
-  };
-  printBackground?: boolean;
-  scale?: number;
-  displayHeaderFooter?: boolean;
-  /**
-   * HTML template for the print header. Supports special classes:
-   * - `<span class="date"></span>` - Current date
-   * - `<span class="title"></span>` - Document title
-   * - `<span class="url"></span>` - Document URL
-   * - `<span class="pageNumber"></span>` - Current page number
-   * - `<span class="totalPages"></span>` - Total pages
-   *
-   * Note: Must set font-size explicitly (e.g., `font-size: 10px`), otherwise text may be invisible.
-   */
-  headerTemplate?: string;
-  /**
-   * HTML template for the print footer. Supports the same special classes as headerTemplate.
-   *
-   * @example
-   * ```yaml
-   * pdf:
-   *   displayHeaderFooter: true
-   *   headerTemplate: '<div style="font-size:10px;width:100%;text-align:center;"><span class="title"></span></div>'
-   *   footerTemplate: '<div style="font-size:10px;width:100%;text-align:center;">Page <span class="pageNumber"></span> of <span class="totalPages"></span></div>'
-   * ```
-   */
-  footerTemplate?: string;
-  /** Custom page width (e.g., '800px'). Overrides format when specified with height. */
-  width?: string;
-  /** Custom page height (e.g., '600px'). Overrides format when specified with width. */
-  height?: string;
-  /** Document title for header template's `<span class="title"></span>` */
-  title?: string;
-}
-
-export interface ImageOptions {
-  /** Output image type (default: "png") */
-  type?: 'png' | 'jpeg' | 'webp';
-  /**
-   * Clamp the output bitmap width (in physical pixels) by lowering the deviceScaleFactor.
-   * This does NOT change layout (CSS pixels), only the exported image resolution.
-   *
-   * Default: 2000
-   * Set to 0 to disable.
-   */
-  maxPixelWidth?: number;
-  /**
-   * Split very tall pages into multiple images to avoid Chrome/Skia limits and repeated tiles.
-   *
-   * - `false`: always export a single image
-   * - `true`: always split when `fullPage: true` (unless `selector` is set)
-   * - `"auto"` (default): split only when the page is too tall for a single reliable capture
-   */
-  split?: boolean | 'auto';
-  /**
-   * Maximum slice height in physical pixels (default: 14000).
-   * Only used when `split` is enabled.
-   */
-  splitMaxPixelHeight?: number;
-  /**
-   * Overlap between slices in CSS px (default: 0).
-   * Set > 0 if you need extra safety for boundary rendering (at the cost of repeated content).
-   * Only used when `split` is enabled.
-   */
-  splitOverlapPx?: number;
-  /**
-   * When `fullPage: true`, Puppeteer can capture content outside the viewport in two ways:
-   * - `captureBeyondViewport: true`: ask Chrome to capture beyond viewport (can be fast, but some very tall pages may repeat tiles)
-   * - `captureBeyondViewport: false`: Puppeteer temporarily resizes the viewport to the full scroll size (more reliable for very tall pages)
-   *
-   * Default:
-   * - when `selector` is set: true
-   * - otherwise: false
-   */
-  captureBeyondViewport?: boolean;
-  /**
-   * Image quality, 0-100 (only for jpeg/webp).
-   * If omitted, Puppeteer/Chromium defaults are used.
-   */
-  quality?: number;
-  /** Capture the full scrollable page (default: true) */
-  fullPage?: boolean;
-  /**
-   * Capture a specific element instead of the full page (CSS selector).
-   * When provided, `fullPage` is ignored and the screenshot will be clipped to the element box.
-   *
-   * Example: `#markdown-content`
-   */
-  selector?: string | string[];
-  /**
-   * How to handle selectors that match multiple elements:
-   *
-   * Note: when `selector` matches multiple elements, "union" will include the in-between page content,
-   * while "stitch" produces a clean "gallery" image containing only the matched elements.
-   * - "union": capture the union bounding box of all matches (includes content between them)
-   * - "each": capture each matched element separately (returns multiple parts)
-   * - "first": capture only the first matched element
-   * - "stitch": move all matched elements into a temporary container stacked vertically, capture that container, then restore
-   */
-  selectorMode?: 'first' | 'each' | 'union' | 'stitch';
-  /**
-   * Extra padding (CSS px) around the selected element when using `selector`.
-   * Default: 0
-   */
-  selectorPadding?: number;
-  /**
-   * Vertical gap (CSS px) between elements when `selectorMode: "stitch"`.
-   * Default: 0
-   */
-  selectorGap?: number;
-  /**
-   * Pre-scroll the page to trigger lazy-loading before taking a screenshot.
-   * Useful for pages that only load images when they enter the viewport.
-   *
-   * Default:
-   * - when `selector` is set: false
-   * - otherwise: same as `fullPage` (true unless `fullPage: false`)
-   */
-  scrollToLoad?: boolean;
-  /** Fine-tune the scroll behavior when `scrollToLoad` is enabled. */
-  scroll?: Partial<{
-    /** Scroll step in px (default: ~0.85 * viewport height) */
-    stepPx: number;
-    /** Delay between scroll steps (default: 250ms) */
-    delayMs: number;
-    /** Max number of scroll steps (default: 40) */
-    maxSteps: number;
-    /** Max total scroll time (default: 10000ms) */
-    maxTimeMs: number;
-  }>;
-  /** Omit the default white background (PNG only; default: false) */
-  omitBackground?: boolean;
-  /**
-   * Capture screenshot from the surface (GPU composited) or the view.
-   * Some extremely tall pages can produce repeated tiles when capturing from surface;
-   * setting this to `false` can help.
-   *
-   * Default: Puppeteer/Chromium default
-   *
-   * Note: when exporting extremely tall pages, forcing `fromSurface: false` may fail with
-   * `Protocol error (Page.captureScreenshot): Unable to capture screenshot`. In that case,
-   * keep it unset (default) or pair it with `captureBeyondViewport: false` for shorter pages.
-   */
-  fromSurface?: boolean;
-  viewport?: {
-    /** Viewport width in CSS pixels (default: 1200) */
-    width?: number;
-    /** Viewport height in CSS pixels (default: 800) */
-    height?: number;
-    /** Device scale factor (default: 1) */
-    deviceScaleFactor?: number;
-  };
-}
 
 function normalizeSelector(selector: ImageOptions['selector']): string | null {
   if (typeof selector === 'string') {
@@ -206,15 +37,6 @@ function normalizeSelector(selector: ImageOptions['selector']): string | null {
     return parts.length ? parts.join(', ') : null;
   }
   return null;
-}
-
-export interface BrowserRenderer {
-  initialize(): Promise<void>;
-  render(type: string, content: string | object, basePath?: string, themeConfig?: RendererThemeConfig | null): Promise<RenderResult | null>;
-  exportToPdf(html: string, css: string, options?: PdfOptions, basePath?: string): Promise<Buffer>;
-  exportToImage(html: string, css: string, options?: ImageOptions, basePath?: string): Promise<Buffer>;
-  exportToImageParts(html: string, css: string, options?: ImageOptions, basePath?: string): Promise<Buffer[]>;
-  close(): Promise<void>;
 }
 
 function resolveRendererHtmlPath(): string {

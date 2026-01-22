@@ -8,21 +8,40 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 (globalThis as any).__md2x_module_dir__ = __dirname;
 
-// Re-export from host modules
+// Re-export exporters
 export { NodeDocxExporter, NodeHtmlExporter, NodePdfExporter, NodeImageExporter } from './host/node-exporter';
-export type { Md2DocxOptions, Md2HtmlOptions, Md2PdfOptions, Md2ImageOptions } from './host/node-exporter';
-export type { PdfOptions, ImageOptions } from './host/browser-renderer';
 
+// Re-export all types from types.ts
+export type {
+  OutputFormat,
+  DiagramMode,
+  FrontMatterData,
+  FrontMatterOptions,
+  ImageOptions,
+  PdfOptions,
+  MarkdownToHtmlStringOptions,
+  CdnOptions,
+  ConvertOptions,
+  ConvertResult,
+  Md2xTemplateConfig,
+  Md2xBaseOptions,
+  Md2DocxOptions,
+  Md2PdfOptions,
+  Md2ImageOptions,
+  Md2HtmlOptions,
+  RenderResult,
+  BrowserRenderer,
+  NodePlatformOutput,
+  CreateNodePlatformOptions,
+  CreatedNodePlatform,
+} from './host/types';
+
+// Re-export functions
 export {
-  // Types
-  type OutputFormat,
-  type DiagramMode,
-  type FrontMatterOptions,
-  type ConvertOptions,
-  type ConvertResult,
-  // Functions
   parseFrontMatter,
   frontMatterToOptions,
+  markdownToHtml,
+  markdownToStandaloneHtml,
   markdownToDocxBuffer,
   markdownToPdfBuffer,
   markdownToHtmlString,

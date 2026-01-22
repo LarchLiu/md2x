@@ -13,16 +13,22 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { createRequire } from 'module';
 import { fileURLToPath, pathToFileURL } from 'url';
-import { createBrowserRenderer, type BrowserRenderer, type PdfOptions, type ImageOptions } from './browser-renderer';
+import { createBrowserRenderer } from './browser-renderer';
 import { createNodePlatform } from './node-platform';
 import { plugins } from '../../../src/plugins/index';
-import type { PluginRenderer, RendererThemeConfig } from '../../../src/types/index';
-
-export interface Md2xTemplateConfig {
-  template: string;
-  type: 'vue' | 'html' | 'svelte';
-  data: any;
-}
+import type { PluginRenderer } from '../../../src/types/index';
+import { markdownToHtml, buildLiveDiagramBootstrapCdn, liveRuntimeChunks, loadBaseCss, loadThemeCss, loadRendererThemeConfig } from './core';
+import { templates as bundledTemplates } from './templates-data';
+import type {
+  RendererThemeConfig,
+  BrowserRenderer,
+  Md2xTemplateConfig,
+  Md2xBaseOptions,
+  Md2DocxOptions,
+  Md2PdfOptions,
+  Md2ImageOptions,
+  Md2HtmlOptions,
+} from './types';
 
 // Helper to get module directory - uses global set by entry point, or falls back to import.meta.url
 function getModuleDir(): string {
@@ -32,95 +38,6 @@ function getModuleDir(): string {
   return path.dirname(fileURLToPath(import.meta.url));
 }
 
-export type Md2xBaseOptions = {
-  theme?: string;
-  basePath?: string;
-  /**
-   * When true, horizontal rules (---, ***, ___) will be converted to page breaks in print/PDF.
-   * Note: this hides `<hr>` visually (default: false for HTML).
-   */
-  hrAsPageBreak?: boolean;
-  /**
-   * Diagram/template rendering mode for PDF export:
-   * - "img": pre-render diagrams before printing (default; offline-friendly)
-   * - "live": render in the browser before printing (required for md2x Vue templates)
-   * - "none": do not process diagrams/templates
-   */
-  diagramMode?: 'img' | 'live' | 'none';
-  /**
-   * Extra directories to search for md2x templates referenced by ` ```md2x ` blocks.
-   * Useful when templates live outside the markdown folder.
-   *
-   * Can be a single path or a list of paths. Relative paths are resolved against `basePath`.
-   */
-  templatesDir?: string | string[];
-};
-
-export type Md2DocxOptions = Md2xBaseOptions;
-
-export type Md2PdfOptions = Md2xBaseOptions & {
-  pdf?: PdfOptions;
-  /**
-   * CDN overrides for live mode.
-   * Same shape as HTML export's `cdn` option.
-   */
-  cdn?: Md2HtmlOptions['cdn'];
-};
-
-export type Md2ImageOptions = Md2xBaseOptions & {
-  image?: ImageOptions;
-  /**
-   * CDN overrides for live diagram mode.
-   * Same shape as HTML export's `cdn` option.
-   */
-  cdn?: Md2HtmlOptions['cdn'];
-};
-
-export type Md2HtmlOptions = Md2xBaseOptions & {
-  /** Document title for standalone HTML output */
-  title?: string;
-  /** When true, returns a full HTML document with embedded CSS (default: true) */
-  standalone?: boolean;
-  /**
-   * Live diagram runtime injection strategy (only used when `diagramMode: "live"`).
-   * - "inline": embed the runtime JS into the HTML (largest output, most self-contained)
-   * - "cdn": reference the runtime JS from a CDN (smallest HTML output)
-   *
-   * Default: "cdn" for HTML export (to keep output small); PDF/Image always use "inline".
-   */
-  liveRuntime?: 'inline' | 'cdn';
-  /**
-   * Custom runtime URL when `liveRuntime: "cdn"`.
-   *
-   * - For the new chunked runtime: provide a base URL that ends with `/dist/renderer/` (or any directory URL),
-   *   e.g. "https://cdn.jsdelivr.net/npm/md2x@0.7.3/dist/renderer/".
-   * - Back-compat: you can also provide a full `.js` URL to a monolithic runtime script.
-   */
-  liveRuntimeUrl?: string;
-  /**
-   * Optional CDN overrides (URLs). Only used when `diagramMode: "live"`.
-   */
-  cdn?: Partial<{
-    mermaid: string;
-    /** Vue 3 global build (required for md2x vue templates in live mode) */
-    vue: string;
-    /** vue3-sfc-loader UMD (required for md2x vue templates in live mode) */
-    vueSfcLoader: string;
-    /**
-     * ESM URL that exports `compile` (e.g. `svelte/compiler` build).
-     * Used for md2x Svelte templates in live mode.
-     */
-    svelteCompiler: string;
-    /**
-     * Base URL used to resolve runtime module imports (e.g. `svelte/internal`, `svelte/store`).
-     * Example: "https://esm.sh/svelte@5/".
-     */
-    svelteBase: string;
-  }>;
-  /** When true, emit a `<base href="file://.../">` tag so relative URLs resolve against basePath (default: true) */
-  baseTag?: boolean;
-};
-
 function ensureBase64Globals(): void {
   // Node 18+ usually has atob/btoa, but keep a safe fallback.
   if (typeof globalThis.atob !== 'function') {
@@ -129,19 +46,6 @@ function ensureBase64Globals(): void {
   if (typeof globalThis.btoa !== 'function') {
     (globalThis as any).btoa = (bin: string) => Buffer.from(bin, 'binary').toString('base64');
   }
-}
-
-async function loadRendererThemeConfig(themeId: string): Promise<RendererThemeConfig> {
-  const platform = globalThis.platform as any;
-  const text = await platform.resource.fetch(`themes/presets/${themeId}.json`);
-  const theme = JSON.parse(text) as any;
-  const fontFamily = theme?.fontScheme?.body?.fontFamily;
-  const fontSize = theme?.fontScheme?.body?.fontSize ? parseFloat(theme.fontScheme.body.fontSize) : undefined;
-
-  return {
-    fontFamily: typeof fontFamily === 'string' ? fontFamily : undefined,
-    fontSize: typeof fontSize === 'number' && Number.isFinite(fontSize) ? fontSize : undefined,
-  };
 }
 
 function createPluginRenderer(
@@ -249,6 +153,15 @@ function collectMd2xTemplateFiles(
     const templateRef = normalizeMd2xTemplateRef(typeRef, templateRaw);
     if (!templateRef) continue;
 
+    // First check bundled templates
+    const bundledContent = bundledTemplates[templateRef];
+    if (bundledContent) {
+      out[templateRef] = bundledContent;
+      if (templateRaw) out[templateRaw] = bundledContent;
+      continue;
+    }
+
+    // Fall back to file system lookup
     const resolveExistingFilePath = (ref: string): string | null => {
       try {
         if (String(ref).toLowerCase().startsWith('file://')) {
@@ -259,7 +172,6 @@ function collectMd2xTemplateFiles(
           return fs.existsSync(ref) ? ref : null;
         }
 
-        const moduleDir = getModuleDir();
         const extraDirs = normalizeTemplateDirs().map((d) => {
           try {
             if (String(d).toLowerCase().startsWith('file://')) return fileURLToPath(d);
@@ -278,12 +190,6 @@ function collectMd2xTemplateFiles(
           path.join(basePath, ref),
           // Optional external template dirs (CLI --template-dir).
           ...extraCandidates,
-          // Packaged CLI may ship templates next to the module root (node/dist/templates/*).
-          path.join(moduleDir, 'templates', ref),
-          // Dev/monorepo fallback (this repo layout): node/src/templates/* (moduleDir is node/src/host).
-          path.join(moduleDir, '..', 'templates', ref),
-          // Another dev fallback when moduleDir is node/dist: node/src/templates/*.
-          path.join(moduleDir, '..', 'src', 'templates', ref),
         ];
         for (const p of candidates) {
           if (fs.existsSync(p)) return p;
@@ -358,7 +264,6 @@ function collectMd2xTemplateFilesFromMarkdown(
         return fs.existsSync(ref) ? ref : null;
       }
 
-      const moduleDir = getModuleDir();
       const extraDirs = normalizeTemplateDirs().map((d) => {
         try {
           if (String(d).toLowerCase().startsWith('file://')) return fileURLToPath(d);
@@ -374,9 +279,6 @@ function collectMd2xTemplateFilesFromMarkdown(
       const candidates = [
         path.join(basePath, ref),
         ...extraCandidates,
-        path.join(moduleDir, 'templates', ref),
-        path.join(moduleDir, '..', 'templates', ref),
-        path.join(moduleDir, '..', 'src', 'templates', ref),
       ];
       for (const p of candidates) {
         if (fs.existsSync(p)) return p;
@@ -394,6 +296,15 @@ function collectMd2xTemplateFilesFromMarkdown(
     const templateRef = normalizeMd2xTemplateRef(typeRef, templateRaw);
     if (!templateRef) continue;
 
+    // First check bundled templates
+    const bundledContent = bundledTemplates[templateRef];
+    if (bundledContent) {
+      out[templateRef] = bundledContent;
+      if (templateRaw) out[templateRaw] = bundledContent;
+      continue;
+    }
+
+    // Fall back to file system lookup
     const filePath = resolveExistingFilePath(templateRef);
     if (!filePath) continue;
 
@@ -504,85 +415,8 @@ async function markdownToHtmlFragment(
   templatesDir?: string | string[],
   cdnOverrides?: Md2HtmlOptions['cdn']
 ): Promise<string> {
-  // Import markdown processor dynamically
-  const { unified } = await import('unified');
-  const remarkParse = (await import('remark-parse')).default;
-  const remarkGfm = (await import('remark-gfm')).default;
-  const remarkMath = (await import('remark-math')).default;
-  const remarkSuperSub = (await import('../../../src/plugins/remark-super-sub')).default;
-  const remarkRehype = (await import('remark-rehype')).default;
-  const rehypeKatex = (await import('rehype-katex')).default;
-  const rehypeHighlight = (await import('rehype-highlight')).default;
-  const rehypeStringify = (await import('rehype-stringify')).default;
-  const { visit } = await import('unist-util-visit');
-
-  // Rehype plugin to mark block-level images
-  // An image is block-level only if:
-  // 1. It's the only image in the paragraph
-  // 2. There's no substantial text content (only labels like "**text:**" before the image are OK)
-  function rehypeBlockImages() {
-    return (tree: any) => {
-      visit(tree, 'element', (node: any) => {
-        if (node.tagName !== 'p') return;
-
-        const children = node.children || [];
-        if (children.length === 0) return;
-
-        // Count images and check for text content
-        let imageCount = 0;
-        let imageIndex = -1;
-        let hasSubstantialTextAfterImage = false;
-        let foundImage = false;
-
-        for (let i = 0; i < children.length; i++) {
-          const child = children[i];
-
-          if (child.type === 'element' && child.tagName === 'img') {
-            imageCount++;
-            imageIndex = i;
-            foundImage = true;
-          } else if (foundImage) {
-            // Check for text after the image
-            if (child.type === 'text' && child.value.trim() !== '') {
-              hasSubstantialTextAfterImage = true;
-            } else if (child.type === 'element' && child.tagName !== 'br') {
-              // Any element after image (except br) means it's inline
-              hasSubstantialTextAfterImage = true;
-            }
-          }
-        }
-
-        // Only mark as block-image if:
-        // - Exactly one image in the paragraph
-        // - No substantial text after the image
-        if (imageCount === 1 && !hasSubstantialTextAfterImage && imageIndex >= 0) {
-          const img = children[imageIndex];
-          img.properties = img.properties || {};
-          const existingClass = img.properties.className || [];
-          img.properties.className = Array.isArray(existingClass)
-            ? [...existingClass, 'block-image']
-            : [existingClass, 'block-image'];
-        }
-      });
-    };
-  }
-
-  // Create processor
-  const processor = unified()
-    .use(remarkParse)
-    // Keep consistent with extension/webview + DOCX: reserve single `~text~` for subscript.
-    .use(remarkGfm, { singleTilde: false })
-    .use(remarkMath)
-    .use(remarkSuperSub)
-    .use(remarkRehype, { allowDangerousHtml: true })
-    .use(rehypeKatex)
-    .use(rehypeHighlight)
-    .use(rehypeBlockImages)
-    .use(rehypeStringify, { allowDangerousHtml: true });
-
-  // Process markdown
-  const file = await processor.process(markdown);
-  let html = String(file);
+  // Use core markdown-to-html conversion
+  let html = await markdownToHtml(markdown);
 
   // Process diagrams (mermaid, graphviz, vega-lite, etc.)
   html = await processDiagrams(html, browserRenderer, basePath, themeConfig, diagramMode, templatesDir, cdnOverrides);
@@ -662,7 +496,7 @@ function buildLiveDiagramBootstrap(
   baseHref: string,
   cdnOverrides: Md2HtmlOptions['cdn'] | undefined,
   md2xTemplateFiles: Record<string, string> | undefined,
-  runtime?: { mode?: 'inline' | 'cdn'; url?: string },
+  runtime?: { mode?: 'inline' | 'cdn'; baseUrl?: string },
   requiredRenderTypes?: string[]
 ): string {
   // Prevent `</script>` inside embedded JSON (e.g., Vue SFC source) from terminating the bootstrap script tag.
@@ -676,7 +510,24 @@ function buildLiveDiagramBootstrap(
   // Default is inline (compat). HTML export can opt into `liveRuntime: "cdn"` to avoid
   // embedding the full runtime JS into the HTML output.
   const liveRuntimeMode: 'inline' | 'cdn' = runtime?.mode === 'cdn' ? 'cdn' : 'inline';
-  const liveRuntimeUrl = runtime?.url;
+
+  const types = Array.isArray(requiredRenderTypes) ? requiredRenderTypes : [];
+
+  if (liveRuntimeMode === 'cdn') {
+    const runtimeBaseUrl = runtime?.baseUrl || getDefaultLiveRuntimeCdnBaseUrl();
+    return buildLiveDiagramBootstrapCdn(types, {
+      runtimeBaseUrl,
+      mermaidUrl: mermaidSrc,
+      baseHref,
+      themeConfig,
+      md2xTemplateFiles,
+      cdn: cdnOverrides,
+    });
+  }
+
+  // Inline mode - read local files
+  const chunks = liveRuntimeChunks(types);
+  const needMermaid = chunks.includes('live-runtime-mermaid.js');
 
   const optsJson = jsonForInlineScript({
     baseHref: baseHref || '',
@@ -686,109 +537,7 @@ function buildLiveDiagramBootstrap(
     rootSelector: '#markdown-content',
   });
 
-  const chunkByType: Record<string, string> = {
-    mermaid: 'live-runtime-mermaid.js',
-    dot: 'live-runtime-dot.js',
-    vega: 'live-runtime-vega.js',
-    'vega-lite': 'live-runtime-vega.js',
-    infographic: 'live-runtime-infographic.js',
-    canvas: 'live-runtime-canvas.js',
-    html: 'live-runtime-html.js',
-    svg: 'live-runtime-svg.js',
-    md2x: 'live-runtime-md2x.js',
-  };
-
-  const types = Array.isArray(requiredRenderTypes) ? requiredRenderTypes : [];
-  const chunks = new Set<string>();
-  for (const t of types) {
-    const k = String(t || '').trim().toLowerCase();
-    const name = chunkByType[k];
-    if (name) chunks.add(name);
-  }
-
-  const needMermaid = chunks.has('live-runtime-mermaid.js');
-
-  if (liveRuntimeMode === 'cdn') {
-    const maybeUrl = (typeof liveRuntimeUrl === 'string' && liveRuntimeUrl.trim()) ? liveRuntimeUrl.trim() : '';
-    const isSingleJs = !!maybeUrl && /\.js(?:\?.*)?$/i.test(maybeUrl);
-
-    // Back-compat: allow pointing to a single monolithic runtime script.
-    if (isSingleJs) {
-      const workerUrl = maybeUrl;
-      return `
-  <!-- md2x live diagram renderer (worker mountToDom) (runtime: cdn) -->
-  <script>try { window.__md2xLiveDone = false; } catch {}</script>
-  <script src="${escapeHtmlText(mermaidSrc)}"></script>
-  <script src="${escapeHtmlText(workerUrl)}"></script>
-  <script>
-  (function () {
-    const opts = ${optsJson};
-    const workerUrl = ${jsonForInlineScript(workerUrl)};
-    const start = Date.now();
-
-    function runWhenReady() {
-      const fn = window.__md2xRenderDocument;
-      if (typeof fn === 'function') {
-        fn(opts).catch(() => { try { window.__md2xLiveDone = true; } catch {} });
-        return;
-      }
-      if (Date.now() - start > 15000) {
-        try {
-          console.error('[md2x] live runtime not loaded (cdn). Check network/CSP or use liveRuntime=\"inline\".', workerUrl);
-        } catch {}
-        try { window.__md2xLiveDone = true; } catch {}
-        return;
-      }
-      setTimeout(runWhenReady, 25);
-    }
-
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', runWhenReady, { once: true });
-    } else {
-      runWhenReady();
-    }
-  })();
-  </script>`;
-    }
-
-    const baseUrlRaw = maybeUrl || getDefaultLiveRuntimeCdnBaseUrl();
-    const baseUrl = baseUrlRaw.endsWith('/') ? baseUrlRaw : (baseUrlRaw + '/');
-
-    const coreUrl = new URL('live-runtime-core.js', baseUrl).href;
-    const chunkTags = Array.from(chunks)
-      .sort()
-      .map((name) => {
-        const u = new URL(name, baseUrl).href;
-        return `  <script src="${escapeHtmlText(u)}"></script>`;
-      })
-      .join('\n');
-
-    return `
-  <!-- md2x live diagram renderer (worker mountToDom) (runtime: cdn) -->
-  <script>try { window.__md2xLiveDone = false; } catch {}</script>
-${needMermaid ? `  <script src="${escapeHtmlText(mermaidSrc)}"></script>\n` : ''}  <script src="${escapeHtmlText(coreUrl)}"></script>
-${chunkTags}
-  <script>
-  (function () {
-    const opts = ${optsJson};
-    function run() {
-      const fn = window.__md2xRenderDocument;
-      if (typeof fn === 'function') {
-        fn(opts).catch(() => { try { window.__md2xLiveDone = true; } catch {} });
-      } else {
-        try { window.__md2xLiveDone = true; } catch {}
-      }
-    }
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', run, { once: true });
-    } else {
-      run();
-    }
-  })();
-  </script>`;
-  }
-
-  const runtimeFiles = ['live-runtime-core.js', ...Array.from(chunks).sort()];
+  const runtimeFiles = ['live-runtime-core.js', ...chunks.sort()];
   const runtimeSources = runtimeFiles.map((f) => ({ file: f, source: loadInlineLiveRuntimeJs(f) }));
 
   return `
@@ -870,7 +619,7 @@ export class NodeDocxExporter {
         await browserRenderer.initialize();
       }
 
-      const themeConfig = await loadRendererThemeConfig(themeId);
+      const themeConfig = loadRendererThemeConfig(themeId);
       const md2xTemplateFiles = collectMd2xTemplateFilesFromMarkdown(markdown, basePath, options.templatesDir);
       const pluginRenderer = createPluginRenderer(browserRenderer, basePath, themeConfig, md2xTemplateFiles);
 
@@ -900,397 +649,6 @@ export class NodeDocxExporter {
     }
   }
 
-}
-
-/**
- * Load theme CSS for PDF export
- */
-async function loadThemeCss(themeId: string): Promise<string> {
-  const platform = globalThis.platform as any;
-
-  // Initialize themeManager first (required for font config)
-  const themeManager = (await import('../../../src/utils/theme-manager')).default;
-  await themeManager.initialize();
-
-  // Load theme preset
-  const themeText = await platform.resource.fetch(`themes/presets/${themeId}.json`);
-  const theme = JSON.parse(themeText);
-
-  // Load layout scheme
-  const layoutText = await platform.resource.fetch(`themes/layout-schemes/${theme.layoutScheme}.json`);
-  const layoutScheme = JSON.parse(layoutText);
-
-  // Load color scheme
-  const colorText = await platform.resource.fetch(`themes/color-schemes/${theme.colorScheme}.json`);
-  const colorScheme = JSON.parse(colorText);
-
-  // Load table style
-  const tableText = await platform.resource.fetch(`themes/table-styles/${theme.tableStyle}.json`);
-  const tableStyle = JSON.parse(tableText);
-
-  // Load code theme
-  const codeText = await platform.resource.fetch(`themes/code-themes/${theme.codeTheme}.json`);
-  const codeTheme = JSON.parse(codeText);
-
-  // Import theme-to-css dynamically to avoid circular dependencies
-  const { themeToCSS } = await import('../../../src/utils/theme-to-css');
-  return themeToCSS(theme, layoutScheme, colorScheme, tableStyle, codeTheme);
-}
-
-/**
- * Load base CSS styles for PDF
- */
-async function loadBaseCss(hrAsPageBreak: boolean = true): Promise<string> {
-  // Base styles for markdown rendering
-  // When hrAsPageBreak is true, hr elements will trigger page breaks
-  const hrStyles = hrAsPageBreak
-    ? `
-/* Horizontal Rule as Page Break */
-hr {
-  height: 0;
-  padding: 0;
-  margin: 0;
-  background-color: transparent;
-  border: 0;
-  page-break-after: always;
-  break-after: page;
-  visibility: hidden;
-}`
-    : `
-/* Horizontal Rule */
-hr {
-  height: 0.25em;
-  padding: 0;
-  margin: 24px 0;
-  background-color: #e1e4e8;
-  border: 0;
-}`;
-
-  return `
-/* Base PDF Styles */
-* {
-  box-sizing: border-box;
-}
-
-body {
-  margin: 0;
-  padding: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
-  line-height: 1.6;
-  color: #333;
-}
-
-.markdown-body, #markdown-content {
-  max-width: 100%;
-  padding: 20px;
-}
-
-/* Wide content auto-scaling for PDF */
-/* Use transform scale to fit wide content within page width */
-/* The actual scale value will be set dynamically via JavaScript */
-#markdown-content > div[style*="width"] {
-  transform-origin: top left;
-  break-inside: avoid;
-  page-break-inside: avoid;
-}
-
-/* Headings */
-h1, h2, h3, h4, h5, h6 {
-  margin-top: 24px;
-  margin-bottom: 16px;
-  font-weight: 600;
-  line-height: 1.25;
-}
-
-h1 { font-size: 2em; border-bottom: 1px solid #eaecef; padding-bottom: 0.3em; }
-h2 { font-size: 1.5em; border-bottom: 1px solid #eaecef; padding-bottom: 0.3em; }
-h3 { font-size: 1.25em; }
-h4 { font-size: 1em; }
-h5 { font-size: 0.875em; }
-h6 { font-size: 0.85em; color: #6a737d; }
-
-/* Paragraphs */
-p {
-  margin-top: 0;
-  margin-bottom: 16px;
-}
-
-/* Links */
-a {
-  color: #0366d6;
-  text-decoration: none;
-}
-
-a:hover {
-  text-decoration: underline;
-}
-
-/* Lists */
-ul, ol {
-  padding-left: 2em;
-  margin-top: 0;
-  margin-bottom: 16px;
-}
-
-li {
-  margin-bottom: 4px;
-}
-
-li + li {
-  margin-top: 4px;
-}
-
-/* Code */
-code {
-  padding: 0.2em 0.4em;
-  margin: 0;
-  font-size: 85%;
-  background-color: rgba(27, 31, 35, 0.05);
-  border-radius: 3px;
-  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
-}
-
-pre {
-  padding: 16px;
-  /* PDFs can't scroll horizontally; wrap long lines instead of clipping. */
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-  font-size: 85%;
-  line-height: 1.45;
-  background-color: #f6f8fa;
-  border-radius: 3px;
-  margin-top: 0;
-  margin-bottom: 16px;
-}
-
-pre code {
-  padding: 0;
-  margin: 0;
-  font-size: 100%;
-  background-color: transparent;
-  border: 0;
-  /* Inherit wrapping behavior from <pre> for PDFs */
-  white-space: inherit;
-  overflow-wrap: inherit;
-  word-break: inherit;
-}
-
-/* Blockquotes */
-blockquote {
-  padding: 0 1em;
-  color: #6a737d;
-  border-left: 0.25em solid #dfe2e5;
-  margin: 0 0 16px 0;
-}
-
-blockquote > :first-child {
-  margin-top: 0;
-}
-
-blockquote > :last-child {
-  margin-bottom: 0;
-}
-
-/* Tables */
-table {
-  border-collapse: collapse;
-  border-spacing: 0;
-  margin-top: 0;
-  margin-bottom: 16px;
-  width: auto;
-}
-
-th, td {
-  padding: 6px 13px;
-  border: 1px solid #dfe2e5;
-}
-
-th {
-  font-weight: 600;
-  background-color: #f6f8fa;
-}
-
-tr:nth-child(2n) {
-  background-color: #f6f8fa;
-}
-
-/* Images */
-img {
-  max-width: 100%;
-  height: auto;
-  box-sizing: content-box;
-}
-
-/* Diagrams (rendered images) */
-.md2x-diagram {
-  text-align: center;
-  break-inside: avoid;
-  page-break-inside: avoid;
-}
-
-.md2x-diagram .md2x-diagram-inner {
-  display: inline-block;
-  max-width: 100%;
-  text-align: left;
-}
-
-.md2x-diagram .md2x-diagram-mount {
-  display: inline-block;
-  max-width: 100%;
-}
-
-.md2x-diagram .vega-embed {
-  display: inline-block;
-  max-width: 100%;
-  width: auto !important;
-}
-
-.md2x-diagram .md2x-diagram-inner svg,
-.md2x-diagram .md2x-diagram-inner > svg {
-  display: block;
-  margin-left: auto;
-  margin-right: auto;
-  max-width: 100%;
-}
-
-.md2x-diagram img,
-img.md2x-diagram {
-  display: block;
-  max-width: 100%;
-  height: auto;
-  margin-left: auto;
-  margin-right: auto;
-  break-inside: avoid;
-  page-break-inside: avoid;
-}
-
-#markdown-content svg {
-  display: block;
-  margin-left: auto;
-  margin-right: auto;
-  break-inside: avoid;
-  page-break-inside: avoid;
-}
-
-/* Block-level images: marked by rehypeBlockImages plugin */
-img.block-image {
-  display: block;
-  margin: 16px 0;
-}
-
-/* Task Lists */
-.task-list-item {
-  list-style-type: none;
-}
-
-.task-list-item input {
-  margin: 0 0.2em 0.25em -1.6em;
-  vertical-align: middle;
-}
-
-/* KaTeX Math */
-.katex {
-  font-size: 1.1em;
-}
-
-.katex-display {
-  margin: 1em 0;
-  overflow-x: auto;
-  overflow-y: hidden;
-}
-
-/* Syntax Highlighting - GitHub style */
-.hljs {
-  display: block;
-  overflow-x: auto;
-  color: #24292e;
-  background: #f6f8fa;
-}
-
-.hljs-comment,
-.hljs-quote {
-  color: #6a737d;
-  font-style: italic;
-}
-
-.hljs-keyword,
-.hljs-selector-tag,
-.hljs-subst {
-  color: #d73a49;
-}
-
-.hljs-number,
-.hljs-literal,
-.hljs-variable,
-.hljs-template-variable,
-.hljs-tag .hljs-attr {
-  color: #005cc5;
-}
-
-.hljs-string,
-.hljs-doctag {
-  color: #032f62;
-}
-
-.hljs-title,
-.hljs-section,
-.hljs-selector-id {
-  color: #6f42c1;
-  font-weight: bold;
-}
-
-.hljs-type,
-.hljs-class .hljs-title {
-  color: #6f42c1;
-}
-
-.hljs-tag,
-.hljs-name,
-.hljs-attribute {
-  color: #22863a;
-}
-
-.hljs-regexp,
-.hljs-link {
-  color: #032f62;
-}
-
-.hljs-symbol,
-.hljs-bullet {
-  color: #e36209;
-}
-
-.hljs-built_in,
-.hljs-builtin-name {
-  color: #005cc5;
-}
-
-.hljs-meta {
-  color: #6a737d;
-  font-weight: bold;
-}
-
-.hljs-deletion {
-  color: #b31d28;
-  background-color: #ffeef0;
-}
-
-.hljs-addition {
-  color: #22863a;
-  background-color: #f0fff4;
-}
-
-.hljs-emphasis {
-  font-style: italic;
-}
-
-.hljs-strong {
-  font-weight: bold;
-}
-
-${hrStyles}
-`;
 }
 
 function loadKatexCss(): string {
@@ -1347,7 +705,7 @@ export class NodePdfExporter {
       }
       await browserRenderer.initialize();
 
-      const themeConfig = await loadRendererThemeConfig(themeId);
+      const themeConfig = loadRendererThemeConfig(themeId);
 
       const diagramMode: 'img' | 'live' | 'none' = options.diagramMode ?? 'img';
       let html = await markdownToHtmlFragment(markdown, browserRenderer, basePath, themeConfig, diagramMode, options.templatesDir, options.cdn);
@@ -1365,10 +723,10 @@ export class NodePdfExporter {
       } catch (e) {
         console.warn('Failed to load KaTeX CSS for PDF export:', e);
       }
-      const baseCss = await loadBaseCss(options.hrAsPageBreak ?? true);
+      const baseCss = loadBaseCss(options.hrAsPageBreak ?? true);
       let themeCss = '';
       try {
-        themeCss = await loadThemeCss(themeId);
+        themeCss = loadThemeCss(themeId);
       } catch (e) {
         console.warn('Failed to load theme CSS, using base styles only:', e);
       }
@@ -1420,7 +778,7 @@ export class NodeImageExporter {
       }
       await browserRenderer.initialize();
 
-      const themeConfig = await loadRendererThemeConfig(themeId);
+      const themeConfig = loadRendererThemeConfig(themeId);
 
       const diagramMode: 'img' | 'live' | 'none' = options.diagramMode ?? 'live';
       let html = await markdownToHtmlFragment(markdown, browserRenderer, basePath, themeConfig, diagramMode, options.templatesDir, options.cdn);
@@ -1438,11 +796,11 @@ export class NodeImageExporter {
         console.warn('Failed to load KaTeX CSS for image export:', e);
       }
 
-      const baseCss = await loadBaseCss(options.hrAsPageBreak ?? false);
+      const baseCss = loadBaseCss(options.hrAsPageBreak ?? false);
 
       let themeCss = '';
       try {
-        themeCss = await loadThemeCss(themeId);
+        themeCss = loadThemeCss(themeId);
       } catch (e) {
         console.warn('Failed to load theme CSS, using base styles only:', e);
       }
@@ -1485,7 +843,7 @@ export class NodeImageExporter {
       }
       await browserRenderer.initialize();
 
-      const themeConfig = await loadRendererThemeConfig(themeId);
+      const themeConfig = loadRendererThemeConfig(themeId);
 
       const diagramMode: 'img' | 'live' | 'none' = options.diagramMode ?? 'live';
       let html = await markdownToHtmlFragment(markdown, browserRenderer, basePath, themeConfig, diagramMode, options.templatesDir, options.cdn);
@@ -1503,11 +861,11 @@ export class NodeImageExporter {
         console.warn('Failed to load KaTeX CSS for image export:', e);
       }
 
-      const baseCss = await loadBaseCss(options.hrAsPageBreak ?? false);
+      const baseCss = loadBaseCss(options.hrAsPageBreak ?? false);
 
       let themeCss = '';
       try {
-        themeCss = await loadThemeCss(themeId);
+        themeCss = loadThemeCss(themeId);
       } catch (e) {
         console.warn('Failed to load theme CSS, using base styles only:', e);
       }
@@ -1553,7 +911,7 @@ export class NodeHtmlExporter {
 
     let browserRenderer: BrowserRenderer | null = null;
     try {
-      const themeConfig = await loadRendererThemeConfig(themeId);
+      const themeConfig = loadRendererThemeConfig(themeId);
 
       if (diagramMode === 'img') {
         browserRenderer = await createBrowserRenderer();
@@ -1574,11 +932,11 @@ export class NodeHtmlExporter {
         console.warn('Failed to load KaTeX CSS for HTML export:', e);
       }
 
-      const baseCss = await loadBaseCss(options.hrAsPageBreak ?? false);
+      const baseCss = loadBaseCss(options.hrAsPageBreak ?? false);
 
       let themeCss = '';
       try {
-        themeCss = await loadThemeCss(themeId);
+        themeCss = loadThemeCss(themeId);
       } catch (e) {
         console.warn('Failed to load theme CSS for HTML export, using base styles only:', e);
       }
@@ -1597,7 +955,7 @@ export class NodeHtmlExporter {
           baseHref,
           options.cdn,
           collectMd2xTemplateFiles(fragment, basePath, options.templatesDir),
-          { mode: options.liveRuntime ?? 'cdn', url: options.liveRuntimeUrl },
+          { mode: options.liveRuntime ?? 'cdn', baseUrl: options.liveRuntimeBaseUrl },
           detectLiveRenderTypesFromHtml(fragment)
         )
         : '';

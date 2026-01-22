@@ -10,29 +10,7 @@ import * as path from 'path';
 import { pathToFileURL } from 'url';
 import type { PlatformAPI } from '../../../src/types/index';
 import type { DocumentService, ReadFileOptions } from '../../../src/types/platform';
-
-export type NodePlatformOutput =
-  | { kind: 'buffer' }
-  | { kind: 'file' };
-
-export type CreateNodePlatformOptions = {
-  /**
-   * Directory of the running Node module (e.g. node/dist when built).
-   * Used to locate the `themes/` assets.
-   */
-  moduleDir: string;
-  selectedThemeId: string;
-  output: NodePlatformOutput;
-  /** Settings to pass to exporters via storage */
-  settings?: {
-    docxHrAsPageBreak?: boolean;
-  };
-};
-
-export type CreatedNodePlatform = {
-  platform: PlatformAPI;
-  getCapturedBuffer: () => Buffer | null;
-};
+import type { NodePlatformOutput, CreateNodePlatformOptions, CreatedNodePlatform } from './types';
 
 function resolveResourceBaseDir(moduleDir: string): string {
   // Built Node: node/dist/themes
