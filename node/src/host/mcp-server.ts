@@ -33,6 +33,7 @@ const ConvertMarkdownSchema = z.object({
   title: z.string().optional().describe('Document title'),
   basePath: z.string().optional().describe('Base path for resolving relative paths'),
   templatesDir: z.array(z.string()).optional().describe('Extra directories to search for md2x templates referenced by ```md2x blocks'),
+  templatesUrl: z.string().optional().describe('URL that returns JSON containing templates (fetched before conversion)'),
   liveRuntime: z.enum(['inline', 'cdn']).optional().describe('HTML live runtime injection strategy (for HTML format with live diagrams)'),
   liveRuntimeBaseUrl: z.string().optional().describe('Custom runtime base URL when liveRuntime is cdn'),
   outputPath: z.string().optional().describe('Output file path (optional, defaults to temp directory with generated filename)'),
@@ -120,6 +121,22 @@ function loadTemplatesFromDirs(dirs: string[], basePath: string): Record<string,
   return out;
 }
 
+async function fetchTemplatesFromUrl(url: string): Promise<Record<string, string>> {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      return {};
+    }
+    const json = await response.json();
+    if (typeof json !== 'object' || json === null) {
+      return {};
+    }
+    return json as Record<string, string>;
+  } catch {
+    return {};
+  }
+}
+
 // ============================================================================
 // MCP Server Implementation
 // ============================================================================
@@ -195,6 +212,10 @@ export class MarkdownMcpServer {
                   type: 'string',
                 },
                 description: 'Extra directories to search for md2x templates referenced by ```md2x blocks',
+              },
+              templatesUrl: {
+                type: 'string',
+                description: 'URL that returns JSON containing templates (fetched before conversion)',
               },
               liveRuntime: {
                 type: 'string',
@@ -274,10 +295,15 @@ export class MarkdownMcpServer {
       };
     }
 
-    // Load templates from directories if specified
-    const templates = params.templatesDir && params.templatesDir.length > 0
-      ? loadTemplatesFromDirs(params.templatesDir, path.dirname(path.resolve(params.markdownFilePath)))
-      : undefined;
+    // Load templates: URL templates first, then directory templates
+    let templates: Record<string, string> | undefined;
+    if (params.templatesUrl) {
+      templates = await fetchTemplatesFromUrl(params.templatesUrl);
+    }
+    if (params.templatesDir && params.templatesDir.length > 0) {
+      const dirTemplates = loadTemplatesFromDirs(params.templatesDir, path.dirname(path.resolve(params.markdownFilePath)));
+      templates = templates ? { ...templates, ...dirTemplates } : dirTemplates;
+    }
 
     const result = await convert(markdown, {
       format: params.format as OutputFormat,

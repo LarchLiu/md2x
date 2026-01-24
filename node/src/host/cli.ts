@@ -48,6 +48,8 @@ interface NodeOptions {
   diagramMode: DiagramMode;
   /** Extra directories to search for md2x templates referenced by ` ```md2x ` blocks (repeatable). */
   templatesDir: string[];
+  /** URL that returns JSON containing templates (fetched before conversion). */
+  templatesUrl?: string;
   /**
    * HTML live runtime injection strategy.
    * - "inline": embed the runtime JS into the HTML (largest output, most self-contained)
@@ -140,6 +142,25 @@ function loadTemplatesFromDirs(dirs: string[], basePath: string): Record<string,
     Object.assign(out, loadTemplatesFromDir(d, basePath));
   }
   return out;
+}
+
+async function fetchTemplatesFromUrl(url: string): Promise<Record<string, string>> {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      console.error(`Warning: Failed to fetch templates from URL: ${response.status} ${response.statusText}`);
+      return {};
+    }
+    const json = await response.json();
+    if (typeof json !== 'object' || json === null) {
+      console.error('Warning: Templates URL did not return a valid JSON object');
+      return {};
+    }
+    return json as Record<string, string>;
+  } catch (error) {
+    console.error(`Warning: Failed to fetch templates from URL: ${error instanceof Error ? error.message : String(error)}`);
+    return {};
+  }
 }
 
 function inferFormatFromOutputPath(outputPath: string): OutputFormat | null {
@@ -250,6 +271,7 @@ function parseArgs(args: string[]): NodeOptions {
     mcp: false,
     diagramMode: 'live',
     templatesDir: [],
+    templatesUrl: undefined,
     liveRuntime: undefined,
     liveRuntimeBaseUrl: undefined,
     hrPageBreak: null,
@@ -348,6 +370,20 @@ function parseArgs(args: string[]): NodeOptions {
         options._explicit.add('templatesDir');
       } else {
         console.error('Error: --templates-dir requires a path');
+        process.exit(1);
+      }
+    } else if (arg === '--templates-url') {
+      i++;
+      if (i < args.length) {
+        const url = String(args[i]).trim();
+        if (!url) {
+          console.error('Error: --templates-url requires a non-empty URL');
+          process.exit(1);
+        }
+        options.templatesUrl = url;
+        options._explicit.add('templatesUrl');
+      } else {
+        console.error('Error: --templates-url requires a URL');
         process.exit(1);
       }
     } else if (arg === '--live-runtime') {
@@ -471,9 +507,19 @@ async function main(): Promise<void> {
   const diagramMode = options._explicit.has('diagramMode')
     ? options.diagramMode
     : (fmOptions.diagramMode ?? defaultDiagramMode);
-  const templates = options._explicit.has('templatesDir')
-    ? { ...(fmOptions.templates ?? {}), ...loadTemplatesFromDirs(options.templatesDir, path.dirname(inputPath)) }
-    : (fmOptions.templates ?? {});
+
+  // Load templates: URL templates first, then directory templates, then front matter templates
+  let templates: Record<string, string> = {};
+  if (options._explicit.has('templatesUrl') && options.templatesUrl) {
+    templates = await fetchTemplatesFromUrl(options.templatesUrl);
+  }
+  if (options._explicit.has('templatesDir')) {
+    Object.assign(templates, loadTemplatesFromDirs(options.templatesDir, path.dirname(inputPath)));
+  }
+  if (fmOptions.templates) {
+    Object.assign(templates, fmOptions.templates);
+  }
+
   const liveRuntime = options._explicit.has('liveRuntime')
     ? options.liveRuntime
     : (fmOptions.liveRuntime ?? options.liveRuntime);
