@@ -11,26 +11,46 @@ import { pathToFileURL } from 'url';
 import type { PlatformAPI } from '../../../src/types/index';
 import type { DocumentService, ReadFileOptions } from '../../../src/types/platform';
 import type { NodePlatformOutput, CreateNodePlatformOptions, CreatedNodePlatform } from './types';
+import * as themes from './themes-data';
 
-function resolveResourceBaseDir(moduleDir: string): string {
-  // Built Node: node/dist/themes
-  if (fs.existsSync(path.join(moduleDir, 'themes'))) {
-    return moduleDir;
+/**
+ * Get embedded theme data by path.
+ * Converts paths like "themes/presets/academic.json" to the corresponding export from themes-data.ts
+ */
+function getEmbeddedThemeData(resourcePath: string): string | null {
+  // Normalize path: remove leading slashes and "./"
+  let rel = resourcePath;
+  if (rel.startsWith('./')) rel = rel.slice(2);
+  if (rel.startsWith('/')) rel = rel.slice(1);
+
+  // Handle special files
+  if (rel === 'themes/registry.json') {
+    return JSON.stringify(themes.registry);
+  }
+  if (rel === 'themes/font-config.json') {
+    return JSON.stringify(themes.fontConfig);
   }
 
-  // Dev (running TS): repo/src/themes
-  const devSrcDir = path.resolve(moduleDir, '../../src');
-  if (fs.existsSync(path.join(devSrcDir, 'themes'))) {
-    return devSrcDir;
+  // Parse path: themes/{category}/{id}.json
+  const match = rel.match(/^themes\/([^/]+)\/(.+)\.json$/);
+  if (!match) return null;
+
+  const [, category, id] = match;
+
+  // Convert category to variable prefix (e.g., "layout-schemes" -> "layout_schemes")
+  const categoryKey = category.replace(/-/g, '_');
+  // Convert id to variable suffix (e.g., "light-clean" -> "light_clean")
+  const idKey = id.replace(/-/g, '_');
+
+  // Build the export name (e.g., "layout_schemes_academic")
+  const exportName = `${categoryKey}_${idKey}` as keyof typeof themes;
+
+  const data = themes[exportName];
+  if (data !== undefined) {
+    return JSON.stringify(data);
   }
 
-  // Fallback: cwd/src/themes
-  const cwdSrcDir = path.resolve(process.cwd(), 'src');
-  if (fs.existsSync(path.join(cwdSrcDir, 'themes'))) {
-    return cwdSrcDir;
-  }
-
-  throw new Error('Unable to locate themes assets (expected themes/ directory).');
+  return null;
 }
 
 function ensureParentDir(filePath: string): void {
@@ -91,7 +111,6 @@ class NodeDocumentService implements DocumentService {
 }
 
 export function createNodePlatform(options: CreateNodePlatformOptions): CreatedNodePlatform {
-  const resourceBaseDir = resolveResourceBaseDir(options.moduleDir);
   const storage = new Map<string, unknown>();
   storage.set('selectedTheme', options.selectedThemeId);
 
@@ -169,19 +188,22 @@ export function createNodePlatform(options: CreateNodePlatformOptions): CreatedN
 
     resource: {
       async fetch(p: string) {
-        // Support both "themes/..." paths and "file://..." URLs.
-        let rel = p;
-        if (rel.startsWith('file://')) {
-          const u = new URL(rel);
+        // Support "file://..." URLs for local files
+        if (p.startsWith('file://')) {
+          const u = new URL(p);
           return await fs.promises.readFile(u.pathname, 'utf8');
         }
 
-        // Remove leading "./" to match fetch-utils extractAssetPath behavior.
-        if (rel.startsWith('./')) rel = rel.slice(2);
-        if (rel.startsWith('/')) rel = rel.slice(1);
+        // Try to get embedded theme data first
+        const embeddedData = getEmbeddedThemeData(p);
+        if (embeddedData !== null) {
+          return embeddedData;
+        }
 
-        const abs = path.join(resourceBaseDir, rel);
-        return await fs.promises.readFile(abs, 'utf8');
+        // Fallback error for unknown resources
+        throw new Error(
+          `Unable to locate resource "${p}". Theme assets are embedded in the Node build.`
+        );
       },
       getURL(p: string) {
         // The shared fetch-utils will strip the "./" prefix and call resource.fetch().
